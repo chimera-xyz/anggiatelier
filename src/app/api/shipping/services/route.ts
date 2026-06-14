@@ -4,10 +4,21 @@ import { createServerSupabase } from "@/lib/supabase/server";
 import { mapShippingService, verifyAdmin } from "@/lib/server-helpers";
 import { shippingServiceSchema } from "@/lib/schemas";
 import { writeAudit } from "@/lib/audit-server";
+import { requestHostedAdmin, usesHostedDemo } from "@/lib/demo-overlay-server";
 
 export async function GET(request: NextRequest) {
   const supabase = createServerSupabase();
-  if (!supabase) return NextResponse.json(demoServices);
+  if (!supabase) {
+    if (usesHostedDemo() && verifyAdmin(request) && request.nextUrl.searchParams.get("all") === "1") {
+      try {
+        const { services } = await requestHostedAdmin<{ services: Record<string, unknown>[] }>("admin_shipping");
+        return NextResponse.json(services.map(mapShippingService));
+      } catch (error) {
+        return NextResponse.json({ error: error instanceof Error ? error.message : "Kurir gagal dimuat." }, { status: 503 });
+      }
+    }
+    return NextResponse.json(demoServices);
+  }
   let query = supabase.from("shipping_services").select("*").order("courier_name").order("service_name");
   if (!verifyAdmin(request) || request.nextUrl.searchParams.get("all") !== "1") query = query.eq("enabled", true);
   const { data, error } = await query;

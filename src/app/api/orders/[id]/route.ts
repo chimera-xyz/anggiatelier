@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { writeAudit } from "@/lib/audit-server";
-import { requestHostedDemo, usesHostedDemo } from "@/lib/demo-overlay-server";
+import { requestHostedAdmin, requestHostedDemo, usesHostedDemo } from "@/lib/demo-overlay-server";
 import { maskBuyerName } from "@/lib/format";
 import { publishOverlayEvent } from "@/lib/overlay-server";
 import { orderActionSchema } from "@/lib/schemas";
@@ -59,7 +59,14 @@ export async function PATCH(request: NextRequest, context: Context) {
   const parsed = orderActionSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message || "Aksi pesanan tidak valid." }, { status: 400 });
   const supabase = createServerSupabase();
-  if (!supabase) return NextResponse.json({ error: "Supabase belum dikonfigurasi." }, { status: 503 });
+  if (!supabase) {
+    try {
+      const { order } = await requestHostedAdmin<{ order: Record<string, unknown> }>("admin_order_update", { id, input: parsed.data });
+      return NextResponse.json(mapOrder(order));
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Pesanan gagal diperbarui." }, { status: 503 });
+    }
+  }
 
   const { data: current } = await supabase.from("orders").select(orderSelect).eq("id", id).single();
   if (!current) return NextResponse.json({ error: "Pesanan tidak ditemukan." }, { status: 404 });

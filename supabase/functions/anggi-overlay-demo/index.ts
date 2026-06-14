@@ -1,8 +1,12 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.95.0";
+import { createRemoteJWKSet, decodeJwt, jwtVerify } from "npm:jose@6.1.3";
 
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
 const overlayKey = "anggi-live-demo";
+const vercelProjectId = "prj_LYXRvJ1O1ZEyFiwuAhLlPc6fptig";
+const vercelTeamId = "team_TDlDalo8mqfB3lrwqeU8j3nh";
+const vercelIssuers = new Set(["https://oidc.vercel.com", "https://oidc.vercel.com/raihancarjastis-projects"]);
 
 function response(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: jsonHeaders });
@@ -49,18 +53,177 @@ function adminKey() {
   return Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 }
 
+async function trustedVercelRequest(request: Request) {
+  const token = request.headers.get("x-vercel-oidc-token");
+  if (!token) return false;
+  try {
+    const decoded = decodeJwt(token);
+    const issuer = String(decoded.iss || "");
+    if (!vercelIssuers.has(issuer)) return false;
+    const jwks = createRemoteJWKSet(new URL(`${issuer}/.well-known/jwks`));
+    const { payload } = await jwtVerify(token, jwks, { issuer });
+    return payload.project_id === vercelProjectId
+      && payload.owner_id === vercelTeamId
+      && payload.environment === "production";
+  } catch {
+    return false;
+  }
+}
+
 Deno.serve(async (request) => {
   if (request.method !== "POST") return response({ error: "Method tidak diizinkan." }, 405);
-  if (request.headers.get("x-overlay-key") !== overlayKey) return response({ error: "Kunci overlay tidak valid." }, 401);
 
   try {
     const body = await request.json() as Record<string, unknown>;
     const action = String(body.action || "");
+    const adminAction = action.startsWith("admin_");
+    if (adminAction) {
+      if (!await trustedVercelRequest(request)) return response({ error: "Koneksi admin tidak terverifikasi." }, 401);
+    } else if (request.headers.get("x-overlay-key") !== overlayKey) {
+      return response({ error: "Kunci overlay tidak valid." }, 401);
+    }
     const key = adminKey();
     if (!key) return response({ error: "Supabase admin key tidak tersedia." }, 500);
     const supabase = createClient(Deno.env.get("SUPABASE_URL") || "", key, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+
+    if (action === "admin_orders") {
+      await supabase.rpc("expire_reservations");
+      const { data, error } = await supabase.from("orders").select("*, products(code,name,image_url)").order("created_at", { ascending: false }).limit(500);
+      if (error) throw error;
+      return response({ orders: data || [] });
+    }
+
+    if (action === "admin_payments") {
+      const { data, error } = await supabase.from("payment_methods").select("*").order("sort_order").order("name");
+      if (error) throw error;
+      return response({ payments: data || [] });
+    }
+
+    if (action === "admin_shipping") {
+      const { data, error } = await supabase.from("shipping_services").select("*").order("courier_name").order("service_name");
+      if (error) throw error;
+      return response({ services: data || [] });
+    }
+
+    if (action === "admin_sessions") {
+      const { data, error } = await supabase.from("live_sessions").select("*, orders(id,status,total)").order("started_at", { ascending: false }).limit(100);
+      if (error) throw error;
+      const sessions = (data || []).map((row) => {
+        const orders = Array.isArray(row.orders) ? row.orders as Array<{ status: string; total: number }> : [];
+        return {
+          ...row,
+          order_count: orders.length,
+          revenue: orders.filter((order) => order.status === "paid").reduce((sum, order) => sum + Number(order.total), 0),
+        };
+      });
+      return response({ sessions });
+    }
+
+    if (action === "admin_audit") {
+      const { data, error } = await supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(200);
+      if (error) throw error;
+      return response({ logs: data || [] });
+    }
+
+    if (action === "admin_live_start") {
+      const name = String(body.name || "Live Anggi Atelier").trim().slice(0, 120);
+      await supabase.from("live_sessions").update({ status: "ended", ended_at: new Date().toISOString() }).eq("status", "active");
+      const { data, error } = await supabase.from("live_sessions").insert({ name }).select("*").single();
+      if (error) throw error;
+      await supabase.from("audit_logs").insert({ action: "live.started", entity_type: "live_session", entity_id: data.id, details: { name } });
+      return response({ session: data });
+    }
+
+    if (action === "admin_live_end") {
+      const id = String(body.id || "");
+      const { data, error } = await supabase.from("live_sessions").update({ status: "ended", ended_at: new Date().toISOString() }).eq("id", id).select("*").single();
+      if (error) throw error;
+      await supabase.from("audit_logs").insert({ action: "live.ended", entity_type: "live_session", entity_id: id });
+      return response({ session: data });
+    }
+
+    if (action === "admin_payment_save") {
+      const input = (body.input || {}) as Record<string, unknown>;
+      const id = String(body.id || "");
+      const payment = {
+        type: input.type === "qris" ? "qris" : "bank_transfer",
+        name: String(input.name || "").trim().slice(0, 120),
+        bank_code: input.bankCode ? String(input.bankCode).trim().slice(0, 80) : null,
+        account_number: input.accountNumber ? String(input.accountNumber).trim().slice(0, 120) : null,
+        account_holder: input.accountHolder ? String(input.accountHolder).trim().slice(0, 120) : null,
+        qris_payload: input.qrisPayload ? String(input.qrisPayload).trim() : null,
+        instructions: input.instructions ? String(input.instructions).trim().slice(0, 500) : null,
+        enabled: Boolean(input.enabled),
+        sort_order: Number(input.sortOrder || 100),
+        updated_at: new Date().toISOString(),
+      };
+      if (!payment.name) return response({ error: "Nama metode pembayaran wajib diisi." }, 400);
+      const query = id
+        ? supabase.from("payment_methods").update(payment).eq("id", id)
+        : supabase.from("payment_methods").insert(payment);
+      const { data, error } = await query.select("*").single();
+      if (error) throw error;
+      await supabase.from("audit_logs").insert({ action: id ? "payment_method.updated" : "payment_method.created", entity_type: "payment_method", entity_id: data.id, details: { name: payment.name, type: payment.type } });
+      return response({ payment: data });
+    }
+
+    if (action === "admin_payment_delete") {
+      const id = String(body.id || "");
+      const { error } = await supabase.from("payment_methods").delete().eq("id", id);
+      if (error) throw error;
+      await supabase.from("audit_logs").insert({ action: "payment_method.deleted", entity_type: "payment_method", entity_id: id });
+      return response({ ok: true });
+    }
+
+    if (action === "admin_order_update") {
+      const id = String(body.id || "");
+      const input = (body.input || {}) as Record<string, unknown>;
+      const orderAction = String(input.action || "");
+      const { data: current, error: currentError } = await supabase.from("orders").select("*, products(code,name,image_url)").eq("id", id).single();
+      if (currentError || !current) return response({ error: "Pesanan tidak ditemukan." }, 404);
+      let order = current;
+      if (orderAction === "confirm") {
+        const { data, error } = await supabase.rpc("confirm_order", { p_order_id: id });
+        if (error) return response({ error: error.message }, 409);
+        order = data;
+        if (input.showInLive !== false && current.status !== "paid") {
+          await supabase.from("overlay_events").insert({
+            type: "purchase",
+            buyer_display: `${String(order.buyer_name || "Buyer").slice(0, 1)}***`,
+            product_code: order.product_code,
+            product_name: order.product_name,
+            product_price: order.unit_price,
+            source: order.source,
+            message: "Pembayaran dikonfirmasi",
+            duration: 7,
+            sound: true,
+          });
+        }
+      } else if (orderAction === "release" || orderAction === "reject") {
+        const rpc = orderAction === "release" ? "release_order" : "reject_order";
+        const args = orderAction === "release" ? { p_order_id: id } : { p_order_id: id, p_reason: String(input.reason || "Bukti pembayaran ditolak.") };
+        const { data, error } = await supabase.rpc(rpc, args);
+        if (error) return response({ error: error.message }, 409);
+        order = data;
+      } else {
+        if (orderAction !== "note" && current.status !== "paid") return response({ error: "Pesanan harus dibayar sebelum diproses." }, 409);
+        const now = new Date().toISOString();
+        const updates = orderAction === "pack"
+          ? { fulfillment_status: "packed", packed_at: now }
+          : orderAction === "ship"
+            ? { fulfillment_status: "shipped", shipped_at: now, waybill: input.waybill || null, tracking_url: input.trackingUrl || null }
+            : orderAction === "complete"
+              ? { fulfillment_status: "completed", completed_at: now }
+              : { admin_note: input.adminNote || null };
+        const { data, error } = await supabase.from("orders").update(updates).eq("id", id).select("*, products(code,name,image_url)").single();
+        if (error) throw error;
+        order = data;
+      }
+      await supabase.from("audit_logs").insert({ action: `order.${orderAction}`, entity_type: "order", entity_id: id, details: input });
+      return response({ order });
+    }
 
     if (action === "products") {
       let query = supabase.from("products").select("*, product_variants(*)").order("code");

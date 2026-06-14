@@ -100,15 +100,6 @@ export function CheckoutClient({ initialCode, initialColor, initialSize }: Props
   const size = variant?.size || "";
   const total = (product?.price || 0) + (selectedShipping?.price || 0);
   const selectedPayment = paymentMethods.find((method) => method.id === selectedPaymentId) || paymentMethods[0];
-  const qrisPayload = useMemo(() => {
-    if (selectedPayment?.type !== "qris" || !selectedPayment.qrisPayload || total <= 0) return "";
-    try {
-      return generateDynamicQrisPayload(selectedPayment.qrisPayload, total);
-    } catch {
-      return "";
-    }
-  }, [selectedPayment, total]);
-
   useEffect(() => {
     if (!order?.accessToken || !["awaiting_payment", "pending_confirmation"].includes(order.status)) return;
     const timer = window.setInterval(async () => {
@@ -257,7 +248,7 @@ export function CheckoutClient({ initialCode, initialColor, initialSize }: Props
               ))}
               {!paymentMethods.length ? <p className="rounded-2xl border border-[#efc7cc] bg-[#fff6f7] p-4 text-sm text-[#9a3451] sm:col-span-2">Metode pembayaran belum tersedia.</p> : null}
             </div>
-            {selectedPayment ? <PaymentInformation method={selectedPayment} total={total} qrisPayload={qrisPayload} ready={Boolean(selectedShipping)} /> : null}
+            <p className="mt-4 flex items-center gap-2 rounded-xl bg-[#fff7f8] px-4 py-3 text-xs leading-5 text-[#756a6e]"><Clock3 className="size-4 shrink-0 text-[#a33c5b]" /> Detail rekening atau QRIS tampil setelah pesanan dibuat. Batas pembayaran {paymentWindowMinutes} menit.</p>
           </section>
 
           <section className="surface p-5 sm:p-7">
@@ -355,32 +346,6 @@ function PaymentChoice({ active, onClick, method }: { active: boolean; onClick: 
         <span className="mt-1 block text-xs text-[#756a6e]">{method.type === "qris" ? "QR otomatis sesuai total" : method.accountNumber ? `Rek ${method.accountNumber}` : "Rekening diisi admin"}</span>
       </span>
     </button>
-  );
-}
-
-function PaymentInformation({ method, total, qrisPayload, ready }: { method: PaymentMethodConfig; total: number; qrisPayload: string; ready: boolean }) {
-  const holder = method.accountHolder || (method.type === "qris" ? "Nama merchant muncul saat QR dipindai" : "Belum diatur");
-  return (
-    <div className="mt-5 overflow-hidden rounded-2xl border border-[#e5c5cd] bg-[linear-gradient(145deg,#fff8f7,#fff0f4)]">
-      <div className="flex items-center gap-3 border-b border-[#ecd6db] px-4 py-4 sm:px-5">
-        <PaymentLogo payment={method} compact />
-        <div className="min-w-0 flex-1"><p className="text-[10px] font-extrabold uppercase tracking-[.14em] text-[#a33c5b]">Metode terpilih</p><h3 className="truncate font-bold">{method.name}</h3></div>
-        <span className="rounded-full bg-[#4a1326] px-3 py-1 text-[10px] font-black text-white">{paymentWindowMinutes} MENIT</span>
-      </div>
-      <div className="p-4 sm:p-5">
-        {method.type === "bank_transfer" ? (
-          <div className="rounded-xl bg-white p-4 shadow-sm">
-            <p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#8b6f78]">Nomor rekening</p>
-            <div className="mt-1 flex items-center justify-between gap-3"><strong className="text-xl tracking-[.06em]">{method.accountNumber || "Belum tersedia"}</strong>{method.accountNumber ? <button type="button" onClick={() => navigator.clipboard.writeText(method.accountNumber || "")} className="rounded-lg border border-[#e2b8c3] p-2 text-[#8a2949]" aria-label="Salin nomor rekening"><Copy className="size-4" /></button> : null}</div>
-          </div>
-        ) : ready && qrisPayload ? <QrisCode payload={qrisPayload} label={`QRIS ${method.name} · ${formatRupiah(total)}`} /> : <p className="rounded-xl bg-white p-4 text-sm text-[#756a6e]">Pilih kurir dulu agar nominal QRIS final.</p>}
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <PaymentInfoItem label={method.type === "qris" ? "Atas nama QRIS" : "Atas nama rekening"} value={holder} />
-          <PaymentInfoItem label="Total pembayaran" value={ready ? formatRupiah(total) : "Pilih kurir dulu"} strong />
-        </div>
-        <div className="mt-4 flex items-start gap-2 rounded-xl bg-[#4a1326] px-4 py-3 text-xs leading-5 text-white"><Clock3 className="mt-0.5 size-4 shrink-0 text-[#f4b5c5]" /><p>Timer dimulai setelah pesanan dibuat. Bayar dan kirim bukti maksimal <strong>{paymentWindowMinutes} menit</strong>; setelah itu stok otomatis bisa dipesan buyer lain.</p></div>
-      </div>
-    </div>
   );
 }
 

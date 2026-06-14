@@ -1,6 +1,7 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
+import { getVercelOidcToken } from "@vercel/oidc";
 import type { OverlayEvent } from "./types";
 
 const hostedDemoUrl =
@@ -23,6 +24,23 @@ export async function requestHostedDemo<T>(action: string, payload: Record<strin
   });
   const body = (await response.json().catch(() => ({}))) as T & { error?: string };
   if (!response.ok) throw new Error(body.error || "Hosted demo overlay tidak dapat dihubungi.");
+  return body;
+}
+
+export async function requestHostedAdmin<T>(action: string, payload: Record<string, unknown> = {}) {
+  const oidcToken = await getVercelOidcToken();
+  if (!oidcToken) throw new Error("Koneksi aman Vercel ke Supabase belum tersedia.");
+  const response = await fetch(hostedDemoUrl, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-vercel-oidc-token": oidcToken,
+    },
+    body: JSON.stringify({ action, ...payload }),
+    cache: "no-store",
+  });
+  const body = (await response.json().catch(() => ({}))) as T & { error?: string };
+  if (!response.ok) throw new Error(body.error || "Data admin tidak dapat dihubungi.");
   return body;
 }
 

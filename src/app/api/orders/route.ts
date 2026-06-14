@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { writeAudit } from "@/lib/audit-server";
 import { paymentDetailsFromConfig } from "@/lib/payments";
-import { requestHostedDemo, usesHostedDemo } from "@/lib/demo-overlay-server";
+import { requestHostedAdmin, requestHostedDemo, usesHostedDemo } from "@/lib/demo-overlay-server";
 import { resolvePaymentMethodServer } from "@/lib/payment-server";
 import { enforceRateLimit, requestIp } from "@/lib/rate-limit";
 import { newOrderSchema } from "@/lib/schemas";
@@ -33,7 +33,14 @@ function orderFailure(message: string) {
 export async function GET(request: NextRequest) {
   if (!verifyAdmin(request)) return NextResponse.json({ error: "Sesi admin tidak valid." }, { status: 401 });
   const supabase = createServerSupabase();
-  if (!supabase) return NextResponse.json({ error: "Supabase belum dikonfigurasi." }, { status: 503 });
+  if (!supabase) {
+    try {
+      const { orders } = await requestHostedAdmin<{ orders: Record<string, unknown>[] }>("admin_orders");
+      return NextResponse.json(orders.map(mapOrder));
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Pesanan gagal dimuat." }, { status: 503 });
+    }
+  }
   await supabase.rpc("expire_reservations");
   const { data, error } = await supabase.from("orders").select(orderSelect).order("created_at", { ascending: false }).limit(500);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
