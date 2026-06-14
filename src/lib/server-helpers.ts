@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { isAdminRequest } from "./admin-auth";
-import type { AuditLog, LiveSession, Order, Product, ProductVariant, ShippingService } from "./types";
+import type { AuditLog, LiveSession, Order, PaymentMethodConfig, Product, ProductVariant, ShippingService } from "./types";
 
 export function verifyAdmin(request: NextRequest) {
   return isAdminRequest(request);
@@ -66,6 +66,8 @@ export function mapOrder(row: Record<string, unknown>): Order {
     address: row.address as Order["address"],
     shipping: row.shipping as Order["shipping"],
     paymentMethod: row.payment_method as Order["paymentMethod"],
+    paymentMethodId: row.payment_method_id ? String(row.payment_method_id) : undefined,
+    paymentDetails: row.payment_details as Order["paymentDetails"],
     proofName: row.proof_name ? String(row.proof_name) : undefined,
     subtotal: Number(row.subtotal),
     total: Number(row.total),
@@ -82,6 +84,21 @@ export function mapOrder(row: Record<string, unknown>): Order {
     shippedAt: row.shipped_at ? String(row.shipped_at) : undefined,
     completedAt: row.completed_at ? String(row.completed_at) : undefined,
     liveSessionId: row.live_session_id ? String(row.live_session_id) : undefined,
+  };
+}
+
+export function mapPaymentMethod(row: Record<string, unknown>): PaymentMethodConfig {
+  return {
+    id: String(row.id),
+    type: row.type as PaymentMethodConfig["type"],
+    name: String(row.name),
+    bankCode: row.bank_code ? String(row.bank_code) : undefined,
+    accountNumber: row.account_number ? String(row.account_number) : undefined,
+    accountHolder: row.account_holder ? String(row.account_holder) : undefined,
+    qrisPayload: row.qris_payload ? String(row.qris_payload) : undefined,
+    instructions: row.instructions ? String(row.instructions) : undefined,
+    enabled: Boolean(row.enabled),
+    sortOrder: Number(row.sort_order || 0),
   };
 }
 

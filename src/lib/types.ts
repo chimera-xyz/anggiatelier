@@ -66,6 +66,32 @@ export type ShippingService = {
   source: "manual" | "biteship";
 };
 
+export type PaymentDetails = {
+  methodId?: string;
+  type: PaymentMethod;
+  name: string;
+  bankCode?: string;
+  accountNumber?: string;
+  accountHolder?: string;
+  qrisPayload?: string;
+  instructions?: string;
+};
+
+export type PaymentMethodConfig = {
+  id: string;
+  type: PaymentMethod;
+  name: string;
+  bankCode?: string;
+  accountNumber?: string;
+  accountHolder?: string;
+  qrisPayload?: string;
+  instructions?: string;
+  enabled: boolean;
+  sortOrder: number;
+};
+
+export type PaymentMethodDraft = Omit<PaymentMethodConfig, "id"> & { id?: string };
+
 export type Address = {
   line: string;
   province: string;
@@ -94,6 +120,8 @@ export type Order = {
   address: Address;
   shipping: ShippingOption;
   paymentMethod: PaymentMethod;
+  paymentMethodId?: string;
+  paymentDetails?: PaymentDetails;
   proofName?: string;
   subtotal: number;
   total: number;

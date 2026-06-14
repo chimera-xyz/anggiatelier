@@ -1,26 +1,28 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, Bell, Box, CircleDollarSign, Clipboard, LayoutDashboard, LoaderCircle, LockKeyhole, LogOut, MessageCircle, MonitorPlay, Package, PackageCheck, RefreshCcw, Settings, ShoppingBag, Truck } from "lucide-react";
+import { Activity, Bell, Box, CircleDollarSign, Clipboard, CreditCard, LayoutDashboard, LoaderCircle, LockKeyhole, LogOut, MessageCircle, MonitorPlay, Package, PackageCheck, RefreshCcw, Settings, ShoppingBag, Truck } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { Toast } from "@/components/toast";
 import { LiveControl } from "./live-control";
 import { OrderWorkspace } from "./order-workspace";
+import { PaymentManager } from "./payment-manager";
 import { ProductManager } from "./product-manager";
 import { ShippingManager } from "./shipping-manager";
 import { WhatsAppOrderModal } from "./whatsapp-order-modal";
-import { adminSession, getOverlayHealth, listAuditLogs, listLiveSessions, listOrders, listProducts, listShippingServices, loginAdmin, logoutAdmin } from "@/lib/api-client";
+import { adminSession, getOverlayHealth, listAuditLogs, listLiveSessions, listOrders, listPaymentMethods, listProducts, listShippingServices, loginAdmin, logoutAdmin } from "@/lib/api-client";
 import { isSupabaseConfigured } from "@/lib/config";
 import { resetDemoStore, subscribeDemoStore } from "@/lib/demo-store";
 import { formatRupiah, statusLabel } from "@/lib/format";
-import type { AuditLog, LiveSession, Order, OverlayHealth, Product, ShippingService } from "@/lib/types";
+import type { AuditLog, LiveSession, Order, OverlayHealth, PaymentMethodConfig, Product, ShippingService } from "@/lib/types";
 
-type View = "overview" | "orders" | "products" | "shipping" | "whatsapp" | "live" | "settings";
+type View = "overview" | "orders" | "products" | "shipping" | "payments" | "whatsapp" | "live" | "settings";
 const nav: Array<{ id: View; label: string; icon: React.ReactNode }> = [
   { id: "overview", label: "Overview", icon: <LayoutDashboard className="size-[18px]" /> },
   { id: "orders", label: "Orders", icon: <Clipboard className="size-[18px]" /> },
   { id: "products", label: "Products", icon: <Box className="size-[18px]" /> },
   { id: "shipping", label: "Shipping", icon: <Truck className="size-[18px]" /> },
+  { id: "payments", label: "Payment", icon: <CreditCard className="size-[18px]" /> },
   { id: "whatsapp", label: "WhatsApp Orders", icon: <MessageCircle className="size-[18px]" /> },
   { id: "live", label: "LIVE Control", icon: <MonitorPlay className="size-[18px]" /> },
   { id: "settings", label: "Settings & Audit", icon: <Settings className="size-[18px]" /> },
@@ -33,6 +35,7 @@ export function AdminDashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [shipping, setShipping] = useState<ShippingService[]>([]);
+  const [payments, setPayments] = useState<PaymentMethodConfig[]>([]);
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [health, setHealth] = useState<OverlayHealth | null>(null);
   const [audit, setAudit] = useState<AuditLog[]>([]);
@@ -43,10 +46,10 @@ export function AdminDashboard() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [nextOrders, nextProducts, nextShipping, nextSessions, nextHealth, nextAudit] = await Promise.all([
-        listOrders(), listProducts(true), listShippingServices(), listLiveSessions(), getOverlayHealth(), listAuditLogs(),
+      const [nextOrders, nextProducts, nextShipping, nextPayments, nextSessions, nextHealth, nextAudit] = await Promise.all([
+        listOrders(), listProducts(true), listShippingServices(), listPaymentMethods(true), listLiveSessions(), getOverlayHealth(), listAuditLogs(),
       ]);
-      setOrders(nextOrders); setProducts(nextProducts); setShipping(nextShipping); setSessions(nextSessions); setHealth(nextHealth); setAudit(nextAudit);
+      setOrders(nextOrders); setProducts(nextProducts); setShipping(nextShipping); setPayments(nextPayments); setSessions(nextSessions); setHealth(nextHealth); setAudit(nextAudit);
     } catch (error) {
       if (error instanceof Error && /sesi admin|unauthorized/i.test(error.message)) setAuthenticated(false);
       else setToast({ message: error instanceof Error ? error.message : "Data operasional gagal dimuat.", type: "error" });
@@ -80,9 +83,10 @@ export function AdminDashboard() {
       {view === "whatsapp" ? <OrderWorkspace orders={orders} refresh={refresh} toast={setToast} whatsappOnly /> : null}
       {view === "products" ? <ProductManager products={products} refresh={refresh} toast={setToast} /> : null}
       {view === "shipping" ? <ShippingManager services={shipping} refresh={refresh} toast={setToast} /> : null}
+      {view === "payments" ? <PaymentManager methods={payments} refresh={refresh} toast={setToast} /> : null}
       {view === "live" ? <LiveControl products={products} orders={orders} sessions={sessions} health={health} refresh={refresh} toast={setToast} /> : null}
       {view === "settings" ? <SettingsAudit audit={audit} refresh={refresh} toast={setToast} /> : null}
-    </div>{waOpen ? <WhatsAppOrderModal products={products} close={() => setWaOpen(false)} created={async () => { setWaOpen(false); await refresh(); setView("whatsapp"); setToast({ message: "Order WhatsApp dibuat dan stok varian langsung direservasi.", type: "success" }); }} toast={setToast} /> : null}{toast ? <Toast {...toast} onClose={() => setToast(null)} /> : null}</main>;
+    </div>{waOpen ? <WhatsAppOrderModal products={products} paymentMethods={payments} close={() => setWaOpen(false)} created={async () => { setWaOpen(false); await refresh(); setView("whatsapp"); setToast({ message: "Order WhatsApp dibuat dan stok varian langsung direservasi.", type: "success" }); }} toast={setToast} /> : null}{toast ? <Toast {...toast} onClose={() => setToast(null)} /> : null}</main>;
 }
 
 function Overview({ metrics, orders, products, health, setView }: { metrics: { revenue: number; paid: number; pending: number; reserved: number; stock: number }; orders: Order[]; products: Product[]; health: OverlayHealth | null; setView: (view: View) => void }) {

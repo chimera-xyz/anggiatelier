@@ -1,4 +1,5 @@
-import type { Order, Product, ShippingOption, ShippingService } from "./types";
+import { defaultPaymentMethods } from "./payments";
+import type { Order, PaymentMethodConfig, Product, ShippingOption, ShippingService } from "./types";
 
 export const products: Product[] = [
   {
@@ -90,6 +91,8 @@ export const shippingServices: ShippingService[] = [
   { id: "ship-jnt-ez", courierCode: "jnt", courierName: "J&T", serviceCode: "ez", serviceName: "EZ", flatPrice: 16_000, eta: "2-3 hari kerja", enabled: true, source: "manual" },
   { id: "ship-sicepat-reg", courierCode: "sicepat", courierName: "SiCepat", serviceCode: "reg", serviceName: "REG", flatPrice: 15_000, eta: "2-4 hari kerja", enabled: true, source: "manual" },
 ];
+
+export const paymentMethods: PaymentMethodConfig[] = defaultPaymentMethods;
 
 const emptyAddress = {
   line: "Jl. Melati No. 15, RT 05/RW 02",

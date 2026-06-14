@@ -1,12 +1,15 @@
 "use client";
 
-import { products as seedProducts, seedOrders, shippingServices as seedShippingServices } from "./seed";
+import { products as seedProducts, seedOrders, shippingServices as seedShippingServices, paymentMethods as seedPaymentMethods } from "./seed";
 import { maskBuyerName } from "./format";
+import { paymentDetailsFromConfig } from "./payments";
 import type {
   AuditLog,
   LiveSession,
   NewOrderInput,
   Order,
+  PaymentMethodConfig,
+  PaymentMethodDraft,
   OverlayEvent,
   Product,
   ProductDraft,
@@ -17,6 +20,7 @@ import type {
 const PRODUCT_KEY = "anggi-products-v2";
 const ORDER_KEY = "anggi-orders-v2";
 const SHIPPING_KEY = "anggi-shipping-v2";
+const PAYMENT_KEY = "anggi-payments-v1";
 const SESSION_KEY = "anggi-live-sessions-v2";
 const AUDIT_KEY = "anggi-audit-v2";
 const OVERLAY_KEY = "anggi-overlay-v2";
@@ -76,6 +80,26 @@ function rawProducts() {
   return read<Product[]>(PRODUCT_KEY, seedProducts).map(syncTotals);
 }
 
+function normalizePaymentMethods(methods: PaymentMethodConfig[]) {
+  return methods.map((method) => method.name.toLowerCase().includes("shield")
+    ? { ...method, id: method.id === "pay-shield-bank" ? "pay-seabank" : method.id, name: "SeaBank", bankCode: "seabank" }
+    : method);
+}
+
+function reconcileReservations(products: Product[], orders: Order[]) {
+  const next = products.map((product) => ({
+    ...product,
+    variants: product.variants.map((variant) => ({ ...variant, reserved: 0 })),
+  }));
+  const activeOrders = orders.filter((order) => ["awaiting_payment", "pending_confirmation", "reserved"].includes(order.status));
+  for (const order of activeOrders) {
+    if (new Date(order.reservedUntil).getTime() <= Date.now()) continue;
+    const variant = next.find((product) => product.id === order.productId)?.variants.find((item) => item.id === order.variantId);
+    if (variant) variant.reserved = Math.min(variant.stock, variant.reserved + order.quantity);
+  }
+  return next.map(syncTotals);
+}
+
 function addAudit(action: string, entityType: string, entityId?: string, details: Record<string, unknown> = {}) {
   const log: AuditLog = {
     id: crypto.randomUUID(),
@@ -91,7 +115,7 @@ function addAudit(action: string, entityType: string, entityId?: string, details
 export function expireDemoReservations() {
   const now = Date.now();
   const orders = rawOrders();
-  const products = rawProducts();
+  let products = rawProducts();
   let changed = false;
   for (const order of orders) {
     if (!["awaiting_payment", "pending_confirmation", "reserved"].includes(order.status)) continue;
@@ -104,14 +128,17 @@ export function expireDemoReservations() {
     changed = true;
   }
   if (changed) {
-    write(PRODUCT_KEY, products.map(syncTotals));
+    products = reconcileReservations(products, orders);
+    write(PRODUCT_KEY, products);
     write(ORDER_KEY, orders);
   }
 }
 
 export function getDemoProducts() {
   expireDemoReservations();
-  return rawProducts();
+  const reconciled = reconcileReservations(rawProducts(), rawOrders());
+  write(PRODUCT_KEY, reconciled);
+  return reconciled;
 }
 
 export function getDemoOrders() {
@@ -169,6 +196,26 @@ export function getDemoShippingServices() {
   return read<ShippingService[]>(SHIPPING_KEY, seedShippingServices);
 }
 
+export function getDemoPaymentMethods(all = false) {
+  return normalizePaymentMethods(read<PaymentMethodConfig[]>(PAYMENT_KEY, seedPaymentMethods))
+    .filter((method) => all || method.enabled)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+export function saveDemoPaymentMethod(input: PaymentMethodDraft) {
+  const methods = read<PaymentMethodConfig[]>(PAYMENT_KEY, seedPaymentMethods);
+  const current = input.id ? methods.find((item) => item.id === input.id) : undefined;
+  const method: PaymentMethodConfig = { ...input, id: current?.id || crypto.randomUUID() };
+  write(PAYMENT_KEY, current ? methods.map((item) => (item.id === method.id ? method : item)) : [...methods, method]);
+  addAudit(current ? "payment_method.updated" : "payment_method.created", "payment_method", method.id, { name: method.name, type: method.type });
+  return method;
+}
+
+export function deleteDemoPaymentMethod(id: string) {
+  write(PAYMENT_KEY, read<PaymentMethodConfig[]>(PAYMENT_KEY, seedPaymentMethods).filter((method) => method.id !== id));
+  addAudit("payment_method.deleted", "payment_method", id);
+}
+
 export function saveDemoShippingService(input: ShippingServiceDraft) {
   const services = getDemoShippingServices();
   const current = input.id ? services.find((item) => item.id === input.id) : undefined;
@@ -190,6 +237,8 @@ export function createDemoOrder(input: NewOrderInput) {
   if (!product || !variant || variant.stock - variant.reserved < input.quantity) {
     throw new Error("Stok varian sudah habis atau sedang direservasi pembeli lain.");
   }
+  const paymentMethod = getDemoPaymentMethods().find((method) => method.id === input.paymentMethodId && method.type === input.paymentMethod)
+    || getDemoPaymentMethods().find((method) => method.type === input.paymentMethod);
 
   variant.reserved += input.quantity;
   write(PRODUCT_KEY, products.map(syncTotals));
@@ -203,6 +252,8 @@ export function createDemoOrder(input: NewOrderInput) {
     size: variant.size,
     id: crypto.randomUUID(),
     orderNumber: makeOrderNumber(input.source),
+    paymentMethodId: paymentMethod?.id || input.paymentMethodId,
+    paymentDetails: paymentMethod ? paymentDetailsFromConfig(paymentMethod) : input.paymentDetails,
     status: input.proofName ? "pending_confirmation" : "awaiting_payment",
     subtotal: product.price * input.quantity,
     total: product.price * input.quantity + input.shipping.price,
@@ -336,7 +387,7 @@ export function getDemoAuditLogs() {
 }
 
 export function subscribeDemoStore(callback: () => void) {
-  const keys = [PRODUCT_KEY, ORDER_KEY, SHIPPING_KEY, SESSION_KEY, AUDIT_KEY, OVERLAY_KEY];
+  const keys = [PRODUCT_KEY, ORDER_KEY, SHIPPING_KEY, PAYMENT_KEY, SESSION_KEY, AUDIT_KEY, OVERLAY_KEY];
   const onStorage = (event: StorageEvent) => { if (keys.includes(event.key || "")) callback(); };
   const onCustom = () => callback();
   window.addEventListener("storage", onStorage);
@@ -351,6 +402,7 @@ export function resetDemoStore() {
   write(PRODUCT_KEY, seedProducts);
   write(ORDER_KEY, seedOrders);
   write(SHIPPING_KEY, seedShippingServices);
+  write(PAYMENT_KEY, seedPaymentMethods);
   write(SESSION_KEY, []);
   write(AUDIT_KEY, []);
   window.localStorage.removeItem(OVERLAY_KEY);

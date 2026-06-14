@@ -21,6 +21,7 @@ export const newOrderSchema = z.object({
   source: z.enum(["website", "whatsapp"]),
   productId: z.string().uuid().or(z.string().startsWith("prod-")),
   variantId: z.string().uuid().or(z.string().startsWith("var-")),
+  paymentMethodId: z.string().uuid().or(z.string().startsWith("pay-")).optional(),
   productCode: z.string().min(1).max(20),
   productName: z.string().min(2).max(200),
   productImage: z.string().min(1).max(500),
@@ -34,6 +35,19 @@ export const newOrderSchema = z.object({
   shipping: shippingSchema,
   paymentMethod: z.enum(["bank_transfer", "qris"]),
   proofName: z.string().max(255).optional(),
+});
+
+export const paymentMethodConfigSchema = z.object({
+  id: z.string().optional(),
+  type: z.enum(["bank_transfer", "qris"]),
+  name: z.string().trim().min(2).max(80),
+  bankCode: z.string().trim().max(40).optional().or(z.literal("")),
+  accountNumber: z.string().trim().max(80).optional().or(z.literal("")),
+  accountHolder: z.string().trim().max(120).optional().or(z.literal("")),
+  qrisPayload: z.string().trim().max(2_000).optional().or(z.literal("")),
+  instructions: z.string().trim().max(400).optional().or(z.literal("")),
+  enabled: z.boolean(),
+  sortOrder: z.number().int().min(0).max(10_000),
 });
 
 const productVariantSchema = z.object({

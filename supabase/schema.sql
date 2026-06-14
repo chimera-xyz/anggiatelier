@@ -78,6 +78,22 @@ create table if not exists public.shipping_services (
   constraint unique_shipping_service unique (courier_code, service_code)
 );
 
+create table if not exists public.payment_methods (
+  id uuid primary key default gen_random_uuid(),
+  type public.payment_method not null,
+  name text not null,
+  bank_code text,
+  account_number text,
+  account_holder text,
+  qris_payload text,
+  instructions text,
+  enabled boolean not null default true,
+  sort_order integer not null default 100,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint unique_payment_method_name unique (name)
+);
+
 create table if not exists public.live_sessions (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -107,6 +123,8 @@ create table if not exists public.orders (
   address jsonb not null,
   shipping jsonb not null,
   payment_method public.payment_method not null,
+  payment_method_id uuid references public.payment_methods(id),
+  payment_details jsonb not null default '{}'::jsonb,
   proof_name text,
   proof_path text,
   rejection_reason text,
@@ -129,6 +147,8 @@ create table if not exists public.orders (
 
 alter table public.orders add column if not exists variant_id uuid references public.product_variants(id);
 alter table public.orders add column if not exists variant_sku text not null default '';
+alter table public.orders add column if not exists payment_method_id uuid references public.payment_methods(id);
+alter table public.orders add column if not exists payment_details jsonb not null default '{}'::jsonb;
 alter table public.orders add column if not exists proof_path text;
 alter table public.orders add column if not exists rejection_reason text;
 alter table public.orders add column if not exists admin_note text;
@@ -186,6 +206,7 @@ create table if not exists public.rate_limit_events (
 
 create index if not exists product_variants_product_id_idx on public.product_variants (product_id);
 create index if not exists product_variants_available_idx on public.product_variants (product_id, active, stock_quantity, reserved_quantity);
+create index if not exists payment_methods_enabled_idx on public.payment_methods (enabled, sort_order);
 create index if not exists orders_created_at_idx on public.orders (created_at desc);
 create index if not exists orders_status_idx on public.orders (status, created_at desc);
 create index if not exists orders_product_id_idx on public.orders (product_id);
@@ -203,6 +224,7 @@ create unique index if not exists only_one_active_live_session_idx on public.liv
 alter table public.products enable row level security;
 alter table public.product_variants enable row level security;
 alter table public.shipping_services enable row level security;
+alter table public.payment_methods enable row level security;
 alter table public.live_sessions enable row level security;
 alter table public.orders enable row level security;
 alter table public.overlay_events enable row level security;
@@ -219,6 +241,8 @@ create policy "Public can read active variants" on public.product_variants for s
 drop policy if exists "Public can read shipping services" on public.shipping_services;
 drop policy if exists "Public can read active shipping services" on public.shipping_services;
 create policy "Public can read active shipping services" on public.shipping_services for select to anon using (enabled = true);
+drop policy if exists "Public can read active payment methods" on public.payment_methods;
+create policy "Public can read active payment methods" on public.payment_methods for select to anon using (enabled = true);
 drop policy if exists "Public can read overlay events" on public.overlay_events;
 
 create or replace function public.refresh_product_totals(p_product_id uuid)
@@ -464,6 +488,18 @@ on conflict (sku) do update set color = excluded.color, color_hex = excluded.col
 insert into public.shipping_services (courier_code, courier_name, service_code, service_name, flat_price, eta, enabled, source)
 values ('jne','JNE','reg','REG',18000,'2-3 hari kerja',true,'manual'), ('jnt','J&T','ez','EZ',16000,'2-3 hari kerja',true,'manual'), ('sicepat','SiCepat','reg','REG',15000,'2-4 hari kerja',true,'manual')
 on conflict (courier_code, service_code) do update set courier_name = excluded.courier_name, service_name = excluded.service_name, flat_price = excluded.flat_price, eta = excluded.eta;
+
+insert into public.payment_methods (type, name, bank_code, account_number, account_holder, qris_payload, instructions, enabled, sort_order)
+values
+  ('bank_transfer','BCA','bca','1234567890','ANGGI ATELIER',null,'Transfer sesuai total order, lalu kirim bukti pembayaran.',true,10),
+  ('bank_transfer','Blu BCA Digital','blu-bca',null,'ANGGI ATELIER',null,'Isi nomor rekening dari menu Payment sebelum live.',true,20),
+  ('bank_transfer','SeaBank','seabank',null,'ANGGI ATELIER',null,'Isi nomor rekening dari menu Payment sebelum live.',true,30),
+  ('qris','QRIS Dinamis',null,null,null,'00020101021126610014COM.GO-JEK.WWW01189360091436762029880210G6762029880303UMI51440014ID.CO.QRIS.WWW0215ID10254004132540303UMI5204573253033605802ID5912iPhone Haven6013JAKARTA TIMUR61051341062070703A016304F93B','QRIS otomatis mengikuti total produk dan ongkir.',true,40)
+on conflict (name) do update set type = excluded.type, bank_code = excluded.bank_code, account_number = excluded.account_number, account_holder = excluded.account_holder, qris_payload = excluded.qris_payload, instructions = excluded.instructions, enabled = excluded.enabled, sort_order = excluded.sort_order, updated_at = now();
+
+update public.payment_methods
+set name = 'SeaBank', bank_code = 'seabank', updated_at = now()
+where lower(name) like '%shield%';
 
 select public.refresh_product_totals(id) from public.products;
 

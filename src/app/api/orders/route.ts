@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { writeAudit } from "@/lib/audit-server";
+import { paymentDetailsFromConfig } from "@/lib/payments";
+import { resolvePaymentMethodServer } from "@/lib/payment-server";
 import { enforceRateLimit, requestIp } from "@/lib/rate-limit";
 import { newOrderSchema } from "@/lib/schemas";
 import { mapOrder, verifyAdmin } from "@/lib/server-helpers";
 import { verifyShippingQuote } from "@/lib/shipping-quote";
 import { createServerSupabase } from "@/lib/supabase/server";
+import type { PaymentMethodConfig } from "@/lib/types";
 
 const orderSelect = "*, products(code,name,image_url)";
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function GET(request: NextRequest) {
   if (!verifyAdmin(request)) return NextResponse.json({ error: "Sesi admin tidak valid." }, { status: 401 });
@@ -36,6 +40,12 @@ export async function POST(request: NextRequest) {
 
   const supabase = createServerSupabase();
   if (!supabase) return NextResponse.json({ error: "Supabase belum dikonfigurasi." }, { status: 503 });
+  let paymentMethod: PaymentMethodConfig;
+  try {
+    paymentMethod = await resolvePaymentMethodServer(supabase, input.paymentMethodId, input.paymentMethod);
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Metode pembayaran tidak valid." }, { status: 400 });
+  }
   const { data, error } = await supabase.rpc("reserve_order", {
     p_product_id: input.productId,
     p_variant_id: input.variantId,
@@ -49,7 +59,17 @@ export async function POST(request: NextRequest) {
     p_proof_name: input.proofName || null,
   });
   if (error) return NextResponse.json({ error: error.message }, { status: 409 });
-  const order = mapOrder(data as Record<string, unknown>);
+  const paymentDetails = paymentDetailsFromConfig(paymentMethod);
+  const { data: updated } = await supabase
+    .from("orders")
+    .update({
+      payment_method_id: uuidPattern.test(paymentMethod.id) ? paymentMethod.id : null,
+      payment_details: paymentDetails,
+    })
+    .eq("id", (data as Record<string, unknown>).id)
+    .select(orderSelect)
+    .single();
+  const order = { ...mapOrder((updated || data) as Record<string, unknown>), paymentMethodId: paymentMethod.id, paymentDetails };
   await writeAudit(supabase, "order.created", "order", order.id, { source: order.source, orderNumber: order.orderNumber });
   return NextResponse.json(order, { status: 201 });
 }

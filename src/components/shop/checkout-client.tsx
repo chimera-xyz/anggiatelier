@@ -15,17 +15,20 @@ import {
   MapPin,
   MessageCircle,
   PackageCheck,
-  QrCode,
   ShieldCheck,
   Truck,
   UploadCloud,
 } from "lucide-react";
 import { Brand } from "@/components/brand";
+import { PaymentLogo } from "@/components/payment-logo";
+import { QrisCode } from "@/components/qris-code";
 import { Toast } from "@/components/toast";
 import { bankAccount, adminWhatsApp } from "@/lib/config";
-import { createOrder, getOrder, getShippingRates, listProducts, uploadPaymentProof } from "@/lib/api-client";
+import { createOrder, getOrder, getShippingRates, listPaymentMethods, listProducts, uploadPaymentProof } from "@/lib/api-client";
 import { formatRupiah, whatsappInvoiceTemplate } from "@/lib/format";
-import type { Order, PaymentMethod, Product, ShippingOption } from "@/lib/types";
+import { defaultPaymentMethods, paymentDetailsFromConfig } from "@/lib/payments";
+import { generateDynamicQrisPayload } from "@/lib/qris";
+import type { Order, PaymentDetails, PaymentMethodConfig, Product, ShippingOption } from "@/lib/types";
 
 type Props = { initialCode: string; initialColor?: string; initialSize?: string };
 
@@ -41,12 +44,13 @@ const initialForm = {
 
 export function CheckoutClient({ initialCode, initialColor, initialSize }: Props) {
   const [product, setProduct] = useState<Product | null>(null);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodConfig[]>([]);
+  const [selectedPaymentId, setSelectedPaymentId] = useState("");
   const [form, setForm] = useState(initialForm);
   const [shipping, setShipping] = useState<ShippingOption[]>([]);
   const [shippingSource, setShippingSource] = useState("estimate");
   const [selectedShipping, setSelectedShipping] = useState<ShippingOption | null>(null);
   const [shippingLoading, setShippingLoading] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("bank_transfer");
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [order, setOrder] = useState<Order | null>(null);
@@ -54,7 +58,18 @@ export function CheckoutClient({ initialCode, initialColor, initialSize }: Props
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   useEffect(() => {
-    listProducts().then((items) => setProduct(items.find((item) => item.code === initialCode) || items[0] || null));
+    Promise.all([listProducts(), listPaymentMethods()])
+      .then(([items, methods]) => {
+        setProduct(items.find((item) => item.code === initialCode) || items[0] || null);
+        const activeMethods = methods.length ? methods : defaultPaymentMethods.filter((method) => method.enabled);
+        setPaymentMethods(activeMethods);
+        setSelectedPaymentId((current) => current || activeMethods[0]?.id || "");
+      })
+      .catch(() => {
+        const fallback = defaultPaymentMethods.filter((method) => method.enabled);
+        setPaymentMethods(fallback);
+        setSelectedPaymentId((current) => current || fallback[0]?.id || "");
+      });
   }, [initialCode]);
 
   useEffect(() => {
@@ -76,11 +91,22 @@ export function CheckoutClient({ initialCode, initialColor, initialSize }: Props
     return () => window.clearTimeout(timer);
   }, [form.postalCode, product]);
 
-  const activeVariants = product?.variants.filter((variant) => variant.active && variant.stock - variant.reserved > 0) || [];
-  const variant = activeVariants.find((item) => item.color === initialColor && item.size === initialSize) || activeVariants[0];
+  const requestedVariant = product?.variants.find((item) => item.active && item.color === initialColor && item.size === initialSize);
+  const activeVariants = product?.variants.filter((item) => item.active && item.stock - item.reserved > 0) || [];
+  const variant = requestedVariant && requestedVariant.stock - requestedVariant.reserved > 0 ? requestedVariant : activeVariants[0];
+  const variantUnavailable = Boolean(requestedVariant && requestedVariant.id !== variant?.id);
   const color = variant?.color || "";
   const size = variant?.size || "";
   const total = (product?.price || 0) + (selectedShipping?.price || 0);
+  const selectedPayment = paymentMethods.find((method) => method.id === selectedPaymentId) || paymentMethods[0];
+  const qrisPayload = useMemo(() => {
+    if (selectedPayment?.type !== "qris" || !selectedPayment.qrisPayload || total <= 0) return "";
+    try {
+      return generateDynamicQrisPayload(selectedPayment.qrisPayload, total);
+    } catch {
+      return "";
+    }
+  }, [selectedPayment, total]);
 
   useEffect(() => {
     if (!order?.accessToken || !["awaiting_payment", "pending_confirmation"].includes(order.status)) return;
@@ -101,7 +127,7 @@ export function CheckoutClient({ initialCode, initialColor, initialSize }: Props
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!product || !variant || !selectedShipping || !agreed) return;
+    if (!product || !variant || !selectedShipping || !selectedPayment || !agreed) return;
     setSubmitting(true);
     try {
       const created = await createOrder({
@@ -125,7 +151,9 @@ export function CheckoutClient({ initialCode, initialColor, initialSize }: Props
           postalCode: form.postalCode,
         },
         shipping: selectedShipping,
-        paymentMethod,
+        paymentMethod: selectedPayment.type,
+        paymentMethodId: selectedPayment.id,
+        paymentDetails: paymentDetailsFromConfig(selectedPayment),
       });
       setOrder(created);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -180,9 +208,9 @@ export function CheckoutClient({ initialCode, initialColor, initialSize }: Props
             <div className="p-6">
               <span className="text-xs font-extrabold tracking-[0.14em] text-[#a33c5b]">KODE {product.code}</span>
               <h1 className="mt-2 font-display text-3xl font-semibold">{product.name}</h1>
-              <p className="mt-2 text-sm text-[#756a6e]">{color} / {size} · SKU {variant?.sku}</p>
+              <p className="mt-2 text-sm text-[#756a6e]">{variant ? `${color} / ${size} · SKU ${variant.sku}` : "Varian tersedia belum dipilih"}</p>
               <p className="mt-5 font-display text-3xl font-semibold text-[#9c2347]">{formatRupiah(product.price)}</p>
-              <div className="mt-5 flex items-center gap-2 rounded-xl bg-[#eef8f2] px-3 py-2 text-xs font-bold text-[#218457]"><Check className="size-4" /> Stok direservasi setelah pesanan dibuat</div>
+              {variantUnavailable ? <div className="mt-5 rounded-xl bg-[#fff6f7] px-3 py-2 text-xs font-bold text-[#9a3451]">Varian dari link sudah habis, sistem memilih varian tersedia.</div> : <div className="mt-5 flex items-center gap-2 rounded-xl bg-[#eef8f2] px-3 py-2 text-xs font-bold text-[#218457]"><Check className="size-4" /> Stok direservasi setelah pesanan dibuat</div>}
             </div>
           </div>
         </aside>
@@ -219,9 +247,21 @@ export function CheckoutClient({ initialCode, initialColor, initialSize }: Props
           <section className="surface p-5 sm:p-7">
             <div className="flex items-center gap-3"><Banknote className="size-5 text-[#a33c5b]" /><div><h2 className="font-display text-3xl font-semibold">Pembayaran manual</h2><p className="mt-1 text-xs text-[#756a6e]">Admin mengonfirmasi setelah bukti diperiksa.</p></div></div>
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              <PaymentChoice active={paymentMethod === "bank_transfer"} onClick={() => setPaymentMethod("bank_transfer")} icon={<Banknote className="size-5" />} title="Transfer Bank" text="Transfer ke rekening admin" />
-              <PaymentChoice active={paymentMethod === "qris"} onClick={() => setPaymentMethod("qris")} icon={<QrCode className="size-5" />} title="QRIS" text="Scan QRIS statis admin" />
+              {paymentMethods.map((method) => (
+                <PaymentChoice
+                  key={method.id}
+                  active={selectedPayment?.id === method.id}
+                  onClick={() => setSelectedPaymentId(method.id)}
+                  method={method}
+                />
+              ))}
+              {!paymentMethods.length ? <p className="rounded-2xl border border-[#efc7cc] bg-[#fff6f7] p-4 text-sm text-[#9a3451] sm:col-span-2">Metode pembayaran belum tersedia.</p> : null}
             </div>
+            {selectedPayment?.type === "qris" ? (
+              <div className="mt-5">
+                {qrisPayload && selectedShipping ? <QrisCode payload={qrisPayload} label={`QRIS ${selectedPayment.name} · ${formatRupiah(total)}`} /> : <p className="rounded-2xl border border-[#eadedd] bg-[#fff9f7] p-4 text-sm text-[#756a6e]">Pilih kurir dulu agar nominal QRIS final.</p>}
+              </div>
+            ) : null}
           </section>
 
           <section className="surface p-5 sm:p-7">
@@ -232,7 +272,7 @@ export function CheckoutClient({ initialCode, initialColor, initialSize }: Props
               <div className="flex items-end justify-between border-t border-[#eadedd] pt-4"><span className="font-bold">Total pembayaran</span><span className="font-display text-3xl font-semibold text-[#a02249]">{formatRupiah(total)}</span></div>
             </div>
             <label className="mt-6 flex cursor-pointer items-start gap-3 text-xs leading-5 text-[#756a6e]"><input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5 size-4 accent-[#9c2347]" /> Saya menyetujui data pesanan dan memahami bahwa stok baru terjual setelah pembayaran dikonfirmasi admin.</label>
-            <button type="submit" disabled={!agreed || !selectedShipping || !variant || submitting} className="primary-button mt-6 min-h-[56px] w-full text-base">
+            <button type="submit" disabled={!agreed || !selectedShipping || !selectedPayment || !variant || submitting} className="primary-button mt-6 min-h-[56px] w-full text-base">
               {submitting ? <LoaderCircle className="size-5 animate-spin" /> : <ShieldCheck className="size-5" />} Buat Pesanan
             </button>
             <p className="mt-3 flex items-center justify-center gap-2 text-center text-[11px] text-[#8a7c81]"><Clock3 className="size-3.5" /> Reservasi berlaku 30 menit setelah pesanan dibuat.</p>
@@ -245,6 +285,21 @@ export function CheckoutClient({ initialCode, initialColor, initialSize }: Props
 }
 
 function OrderSuccess({ order, waiting, proofUploading, uploadProof, invoiceLink }: { order: Order; waiting: boolean; proofUploading: boolean; uploadProof: (file?: File) => void; invoiceLink: string }) {
+  const payment: PaymentDetails = order.paymentDetails || {
+    type: order.paymentMethod,
+    name: bankAccount.bank,
+    accountNumber: bankAccount.number,
+    accountHolder: bankAccount.holder,
+  };
+  let qrisPayload = "";
+  if (payment.type === "qris" && payment.qrisPayload) {
+    try {
+      qrisPayload = generateDynamicQrisPayload(payment.qrisPayload, order.total);
+    } catch {
+      qrisPayload = "";
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#fffaf6] paper-noise px-4 py-6 sm:px-6 sm:py-10">
       <div className="mx-auto max-w-3xl">
@@ -264,7 +319,14 @@ function OrderSuccess({ order, waiting, proofUploading, uploadProof, invoiceLink
               <div className="mt-6 rounded-2xl border border-[#eadedd] p-5"><h3 className="font-display text-2xl font-semibold">Rincian pembayaran</h3><div className="mt-4 space-y-3 text-sm"><div className="flex justify-between text-[#756a6e]"><span>Subtotal</span><span>{formatRupiah(order.subtotal)}</span></div><div className="flex justify-between text-[#756a6e]"><span>{order.shipping.courier} {order.shipping.service}</span><span>{formatRupiah(order.shipping.price)}</span></div><div className="flex justify-between border-t border-[#eadedd] pt-3 text-base font-extrabold"><span>Total</span><span className="text-[#9c2347]">{formatRupiah(order.total)}</span></div></div></div>
             </div>
             <div>
-              <div className="rounded-2xl border border-[#e6c2ca] bg-[#fff3f6] p-5"><div className="flex items-center gap-3"><Banknote className="size-5 text-[#9c2347]" /><h3 className="font-bold">Transfer manual</h3></div><p className="mt-4 text-xs uppercase tracking-[0.12em] text-[#8b6f78]">{bankAccount.bank}</p><div className="mt-1 flex items-center justify-between gap-3"><strong className="text-xl tracking-[0.06em]">{bankAccount.number}</strong><button onClick={() => navigator.clipboard.writeText(bankAccount.number)} className="rounded-lg border border-[#e2b8c3] bg-white p-2 text-[#8a2949]" aria-label="Salin rekening"><Copy className="size-4" /></button></div><p className="mt-1 text-xs text-[#756a6e]">a.n. {bankAccount.holder}</p></div>
+              {payment.type === "qris" ? (
+                <div className="rounded-2xl border border-[#e6c2ca] bg-[#fff3f6] p-5">
+                  <div className="mb-4 flex items-center gap-3"><PaymentLogo payment={payment} compact /><h3 className="font-bold">{payment.name}</h3></div>
+                  {qrisPayload ? <QrisCode payload={qrisPayload} label={`Total ${formatRupiah(order.total)}`} /> : <p className="rounded-xl bg-white p-4 text-xs text-[#9a3451]">Payload QRIS belum valid. Hubungi admin untuk pembayaran manual.</p>}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-[#e6c2ca] bg-[#fff3f6] p-5"><div className="flex items-center gap-3"><PaymentLogo payment={payment} compact /><h3 className="font-bold">Transfer manual</h3></div><p className="mt-4 text-xs uppercase tracking-[0.12em] text-[#8b6f78]">{payment.name}</p><div className="mt-1 flex items-center justify-between gap-3"><strong className="text-xl tracking-[0.06em]">{payment.accountNumber || "Hubungi admin"}</strong>{payment.accountNumber ? <button onClick={() => navigator.clipboard.writeText(payment.accountNumber || "")} className="rounded-lg border border-[#e2b8c3] bg-white p-2 text-[#8a2949]" aria-label="Salin rekening"><Copy className="size-4" /></button> : null}</div><p className="mt-1 text-xs text-[#756a6e]">a.n. {payment.accountHolder || bankAccount.holder}</p></div>
+              )}
               <div className="mt-5 rounded-2xl border border-dashed border-[#dba5b3] p-5 text-center">
                 {waiting ? <><CheckCircle2 className="mx-auto size-9 text-[#218457]" /><h3 className="mt-3 font-bold">Bukti sudah diterima</h3><p className="mt-1 text-xs leading-5 text-[#756a6e]">Menunggu konfirmasi admin. Notifikasi LIVE muncul setelah admin menyetujui pembayaran.</p></> : <><UploadCloud className="mx-auto size-9 text-[#bf4a6a]" /><h3 className="mt-3 font-bold">Unggah bukti pembayaran</h3><p className="mt-1 text-xs leading-5 text-[#756a6e]">JPG, PNG, WebP, atau PDF maksimal 5 MB.</p><label className="primary-button mt-4 w-full">{proofUploading ? <LoaderCircle className="size-4 animate-spin" /> : <FileCheck2 className="size-4" />} Pilih Bukti<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="sr-only" disabled={proofUploading} onChange={(event) => uploadProof(event.target.files?.[0])} /></label></>}
               </div>
@@ -281,6 +343,14 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <label className="grid gap-2 text-xs font-bold text-[#5f5055]"><span>{label}</span>{children}</label>;
 }
 
-function PaymentChoice({ active, onClick, icon, title, text }: { active: boolean; onClick: () => void; icon: React.ReactNode; title: string; text: string }) {
-  return <button type="button" onClick={onClick} className={`flex min-h-[86px] items-center gap-4 rounded-2xl border p-4 text-left ${active ? "border-[#d65376] bg-[#fff4f6] text-[#7a1837]" : "border-[#eadedd] bg-white"}`}><span className={`grid size-10 place-items-center rounded-xl ${active ? "bg-[#4a1326] text-white" : "bg-[#f7edef] text-[#8a2949]"}`}>{icon}</span><span><strong className="block text-sm">{title}</strong><span className="mt-1 block text-xs text-[#756a6e]">{text}</span></span></button>;
+function PaymentChoice({ active, onClick, method }: { active: boolean; onClick: () => void; method: PaymentMethodConfig }) {
+  return (
+    <button type="button" onClick={onClick} className={`flex min-h-[94px] items-center gap-4 rounded-2xl border p-4 text-left transition ${active ? "border-[#d65376] bg-[#fff4f6] text-[#7a1837] shadow-sm" : "border-[#eadedd] bg-white hover:border-[#d7b7bf]"}`}>
+      <PaymentLogo payment={method} />
+      <span>
+        <strong className="block text-sm">{method.name}</strong>
+        <span className="mt-1 block text-xs text-[#756a6e]">{method.type === "qris" ? "QR otomatis sesuai total" : method.accountNumber ? `Rek ${method.accountNumber}` : "Rekening diisi admin"}</span>
+      </span>
+    </button>
+  );
 }

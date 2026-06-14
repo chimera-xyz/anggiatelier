@@ -5,6 +5,7 @@ import {
   archiveDemoProduct,
   confirmDemoOrder,
   createDemoOrder,
+  deleteDemoPaymentMethod,
   deleteDemoShippingService,
   endDemoLiveSession,
   getActiveDemoSession,
@@ -12,9 +13,11 @@ import {
   getDemoLiveSessions,
   getDemoOrder,
   getDemoOrders,
+  getDemoPaymentMethods,
   getDemoProducts,
   getDemoShippingServices,
   releaseDemoOrder,
+  saveDemoPaymentMethod,
   saveDemoProduct,
   saveDemoShippingService,
   setLiveDemoProduct,
@@ -29,6 +32,8 @@ import type {
   Order,
   OverlayEvent,
   OverlayHealth,
+  PaymentMethodConfig,
+  PaymentMethodDraft,
   Product,
   ProductDraft,
   ShippingOption,
@@ -97,6 +102,21 @@ export async function saveShippingService(input: ShippingServiceDraft): Promise<
 export async function deleteShippingService(id: string) {
   if (!isSupabaseConfigured) return deleteDemoShippingService(id);
   await json(await fetch(`/api/shipping/services/${id}`, { method: "DELETE" }));
+}
+
+export async function listPaymentMethods(all = false): Promise<PaymentMethodConfig[]> {
+  if (!isSupabaseConfigured) return getDemoPaymentMethods(all);
+  return json(await fetch(`/api/payments${all ? "?all=1" : ""}`, { cache: "no-store" }));
+}
+
+export async function savePaymentMethod(input: PaymentMethodDraft): Promise<PaymentMethodConfig> {
+  if (!isSupabaseConfigured) return saveDemoPaymentMethod(input);
+  return json(await fetch(input.id ? `/api/payments/${input.id}` : "/api/payments", { method: input.id ? "PUT" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }));
+}
+
+export async function deletePaymentMethod(id: string) {
+  if (!isSupabaseConfigured) return deleteDemoPaymentMethod(id);
+  await json(await fetch(`/api/payments/${id}`, { method: "DELETE" }));
 }
 
 export async function getShippingRates(productId: string, postalCode: string): Promise<{ source: string; rates: ShippingOption[] }> {
