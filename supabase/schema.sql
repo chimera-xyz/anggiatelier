@@ -275,7 +275,8 @@ for each row execute function public.sync_product_variant_totals();
 create or replace function public.make_order_number(p_source public.order_source)
 returns text language sql volatile set search_path = public as $$
   select (case when p_source = 'website' then 'WEB' else 'WA' end)
-    || '-' || to_char(now(), 'DDMM') || '-' || right(extract(epoch from clock_timestamp())::bigint::text, 6);
+    || '-' || to_char(clock_timestamp(), 'DDMMYY-HH24MISS')
+    || '-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 6));
 $$;
 
 create or replace function public.expire_reservations()

@@ -4,6 +4,7 @@ import { publishDemoOverlayEvent, requestHostedDemo, usesHostedDemo } from "@/li
 import { mapProduct, verifyAdmin } from "@/lib/server-helpers";
 import { publishOverlayEvent } from "@/lib/overlay-server";
 import { writeAudit } from "@/lib/audit-server";
+import { overlayOrderCta } from "@/lib/overlay-copy";
 
 export async function POST(request: NextRequest) {
   if (!verifyAdmin(request)) return NextResponse.json({ error: "Sesi admin tidak valid." }, { status: 401 });
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest) {
         productCode: mapped.code,
         productName: mapped.name,
         productPrice: mapped.price,
-        message: "Order via link bio atau WhatsApp",
+        message: overlayOrderCta,
         duration: 10,
         sound: false,
       });
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
     productCode: data.code,
     productName: data.name,
     productPrice: data.price,
-    message: "Order via link bio atau WhatsApp",
+    message: overlayOrderCta,
     duration: 10,
     sound: false,
   });

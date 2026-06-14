@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { Check, MessageCircle, ShoppingBag } from "lucide-react";
+import { overlayContactName, overlayOrderInstruction } from "@/lib/overlay-copy";
 import { createBrowserSupabase } from "@/lib/supabase/client";
 import { listProducts } from "@/lib/api-client";
 import { formatRupiah } from "@/lib/format";
@@ -167,7 +168,7 @@ function PurchaseOverlay({ event, preview }: { event: OverlayEvent | null; previ
         <p><strong>{shown.buyerDisplay}</strong> baru saja membeli <b>Kode {shown.productCode}</b></p>
         <span><Check aria-hidden="true" /> {shown.message}</span>
       </div>
-      <small>{shown.source === "whatsapp" ? "WA" : "WEB"}</small>
+      <small>{shown.source === "whatsapp" ? overlayContactName.toUpperCase() : "WEB"}</small>
     </section>
   );
 }
@@ -178,7 +179,7 @@ function ProductOverlay({ product }: { product: Product | null }) {
     <section className="overlay-widget overlay-product">
       <div className="overlay-product-code"><span>Kode</span><strong>{product.code}</strong></div>
       <div className="overlay-product-body"><h1>{product.name}</h1><div className="overlay-product-rule" /><p className="overlay-product-price">{formatRupiah(product.price)}</p></div>
-      <p className="overlay-product-order"><span><MessageCircle aria-hidden="true" /></span> Order via link bio atau WhatsApp</p>
+      <p className="overlay-product-order"><span><MessageCircle aria-hidden="true" /></span> {overlayOrderInstruction}</p>
     </section>
   );
 }
@@ -195,7 +196,7 @@ function BrandOverlay() {
 function FooterOverlay() {
   return (
     <footer className="overlay-widget overlay-footer">
-      <div><strong>KETIK KODE + WARNA</strong><p>Pesan via link bio atau WhatsApp admin</p></div>
+      <div><strong>KETIK KODE + WARNA</strong><p>{overlayOrderInstruction}</p></div>
       <span className="overlay-footer-icon"><MessageCircle aria-hidden="true" /></span>
     </footer>
   );

@@ -12,6 +12,23 @@ import type { PaymentMethodConfig } from "@/lib/types";
 const orderSelect = "*, products(code,name,image_url)";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function orderFailure(message: string) {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("stok") || normalized.includes("stock")) {
+    return { status: 409, message: "Stok varian baru saja habis atau sedang direservasi pembeli lain. Pilih varian lain lalu coba lagi." };
+  }
+  if (normalized.includes("varian") || normalized.includes("produk tidak ditemukan")) {
+    return { status: 409, message: "Data produk atau varian sudah berubah. Muat ulang halaman lalu pilih kembali produknya." };
+  }
+  if (normalized.includes("duplicate") && normalized.includes("order_number")) {
+    return { status: 503, message: "Nomor pesanan sedang sibuk dibuat. Silakan tekan Buat Pesanan sekali lagi." };
+  }
+  if (normalized.includes("schema cache") || normalized.includes("does not exist") || normalized.includes("could not find")) {
+    return { status: 503, message: "Sistem pesanan sedang disinkronkan. Coba lagi sebentar lagi." };
+  }
+  return { status: 500, message: "Pesanan belum dapat diproses. Data dan stok Anda belum berubah; silakan coba lagi." };
+}
+
 export async function GET(request: NextRequest) {
   if (!verifyAdmin(request)) return NextResponse.json({ error: "Sesi admin tidak valid." }, { status: 401 });
   const supabase = createServerSupabase();
@@ -58,7 +75,11 @@ export async function POST(request: NextRequest) {
     p_payment_method: input.paymentMethod,
     p_proof_name: input.proofName || null,
   });
-  if (error) return NextResponse.json({ error: error.message }, { status: 409 });
+  if (error) {
+    console.error("reserve_order failed", { code: error.code, message: error.message, details: error.details, hint: error.hint });
+    const failure = orderFailure(error.message);
+    return NextResponse.json({ error: failure.message }, { status: failure.status });
+  }
   const paymentDetails = paymentDetailsFromConfig(paymentMethod);
   const { data: updated } = await supabase
     .from("orders")

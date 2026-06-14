@@ -1,6 +1,6 @@
 "use client";
 
-import { demoAdminPin, isHostedDemoBrowser, isSupabaseConfigured } from "./config";
+import { demoAdminPin, usesLocalDemoBrowser } from "./config";
 import {
   archiveDemoProduct,
   confirmDemoOrder,
@@ -41,6 +41,7 @@ import type {
   ShippingServiceDraft,
 } from "./types";
 import { maskBuyerName } from "./format";
+import { overlayOrderCta } from "./overlay-copy";
 
 async function json<T>(response: Response): Promise<T> {
   const body = await response.json();
@@ -50,101 +51,100 @@ async function json<T>(response: Response): Promise<T> {
 
 export async function adminSession() {
   const result = await json<{ authenticated: boolean }>(await fetch("/api/admin/session", { cache: "no-store" }));
-  if (result.authenticated || isSupabaseConfigured || window.sessionStorage.getItem("anggi-demo-admin") !== "yes") return result.authenticated;
+  if (result.authenticated || !usesLocalDemoBrowser() || window.sessionStorage.getItem("anggi-demo-admin") !== "yes") return result.authenticated;
   await json(await fetch("/api/admin/session", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pin: demoAdminPin }) }));
   return true;
 }
 
 export async function loginAdmin(pin: string) {
   await json(await fetch("/api/admin/session", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pin }) }));
-  if (!isSupabaseConfigured) window.sessionStorage.setItem("anggi-demo-admin", "yes");
+  if (usesLocalDemoBrowser()) window.sessionStorage.setItem("anggi-demo-admin", "yes");
   return true;
 }
 
 export async function logoutAdmin() {
-  if (!isSupabaseConfigured) window.sessionStorage.removeItem("anggi-demo-admin");
+  if (usesLocalDemoBrowser()) window.sessionStorage.removeItem("anggi-demo-admin");
   await fetch("/api/admin/session", { method: "DELETE" });
 }
 
 export async function listProducts(all = false): Promise<Product[]> {
-  if (isHostedDemoBrowser()) return json(await fetch(`/api/products${all ? "?all=1" : ""}`, { cache: "no-store" }));
-  if (!isSupabaseConfigured) return getDemoProducts().filter((product) => all || product.active);
+  if (usesLocalDemoBrowser()) return getDemoProducts().filter((product) => all || product.active);
   return json(await fetch(`/api/products${all ? "?all=1" : ""}`, { cache: "no-store" }));
 }
 
 export async function saveProduct(input: ProductDraft, id?: string): Promise<Product> {
-  if (!isSupabaseConfigured) return saveDemoProduct(input, id);
+  if (usesLocalDemoBrowser()) return saveDemoProduct(input, id);
   return json(await fetch(id ? `/api/products/${id}` : "/api/products", { method: id ? "PUT" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }));
 }
 
 export async function archiveProduct(id: string): Promise<unknown> {
-  if (!isSupabaseConfigured) return archiveDemoProduct(id);
+  if (usesLocalDemoBrowser()) return archiveDemoProduct(id);
   return json(await fetch(`/api/products/${id}`, { method: "DELETE" }));
 }
 
 export async function uploadProductImage(file: File) {
-  if (!isSupabaseConfigured) return URL.createObjectURL(file);
+  if (usesLocalDemoBrowser()) return URL.createObjectURL(file);
   const form = new FormData();
   form.set("file", file);
   return (await json<{ url: string }>(await fetch("/api/products/image", { method: "POST", body: form }))).url;
 }
 
 export async function listShippingServices(): Promise<ShippingService[]> {
-  if (!isSupabaseConfigured) return getDemoShippingServices();
+  if (usesLocalDemoBrowser()) return getDemoShippingServices();
   return json(await fetch("/api/shipping/services?all=1", { cache: "no-store" }));
 }
 
 export async function saveShippingService(input: ShippingServiceDraft): Promise<ShippingService> {
-  if (!isSupabaseConfigured) return saveDemoShippingService(input);
+  if (usesLocalDemoBrowser()) return saveDemoShippingService(input);
   return json(await fetch(input.id ? `/api/shipping/services/${input.id}` : "/api/shipping/services", { method: input.id ? "PUT" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }));
 }
 
 export async function deleteShippingService(id: string) {
-  if (!isSupabaseConfigured) return deleteDemoShippingService(id);
+  if (usesLocalDemoBrowser()) return deleteDemoShippingService(id);
   await json(await fetch(`/api/shipping/services/${id}`, { method: "DELETE" }));
 }
 
 export async function listPaymentMethods(all = false): Promise<PaymentMethodConfig[]> {
-  if (!isSupabaseConfigured) return getDemoPaymentMethods(all);
+  if (usesLocalDemoBrowser()) return getDemoPaymentMethods(all);
   return json(await fetch(`/api/payments${all ? "?all=1" : ""}`, { cache: "no-store" }));
 }
 
 export async function savePaymentMethod(input: PaymentMethodDraft): Promise<PaymentMethodConfig> {
-  if (!isSupabaseConfigured) return saveDemoPaymentMethod(input);
+  if (usesLocalDemoBrowser()) return saveDemoPaymentMethod(input);
   return json(await fetch(input.id ? `/api/payments/${input.id}` : "/api/payments", { method: input.id ? "PUT" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }));
 }
 
 export async function deletePaymentMethod(id: string) {
-  if (!isSupabaseConfigured) return deleteDemoPaymentMethod(id);
+  if (usesLocalDemoBrowser()) return deleteDemoPaymentMethod(id);
   await json(await fetch(`/api/payments/${id}`, { method: "DELETE" }));
 }
 
 export async function getShippingRates(productId: string, postalCode: string): Promise<{ source: string; rates: ShippingOption[] }> {
-  if (!isSupabaseConfigured) {
+  if (usesLocalDemoBrowser()) {
     return { source: "estimate", rates: getDemoShippingServices().filter((service) => service.enabled).map((service) => ({ id: `manual:${service.id}`, courier: service.courierName, service: service.serviceName, price: service.flatPrice, eta: service.eta, token: `demo-${service.id}-${productId}-${postalCode}` })) };
   }
   return json(await fetch("/api/shipping/rates", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ productId, postalCode }) }));
 }
 
 export async function listOrders(): Promise<Order[]> {
-  if (!isSupabaseConfigured) return getDemoOrders();
+  if (usesLocalDemoBrowser()) return getDemoOrders();
   return json(await fetch("/api/orders", { cache: "no-store" }));
 }
 
 export async function getOrder(id: string, accessToken?: string): Promise<Order | null> {
-  if (!isSupabaseConfigured) return getDemoOrder(id);
+  if (usesLocalDemoBrowser()) return getDemoOrder(id);
   const query = accessToken ? `?token=${encodeURIComponent(accessToken)}` : "";
   return json(await fetch(`/api/orders/${id}${query}`, { cache: "no-store" }));
 }
 
 export async function createOrder(input: NewOrderInput): Promise<Order> {
-  if (!isSupabaseConfigured) return createDemoOrder(input);
+  if (usesLocalDemoBrowser()) return createDemoOrder(input);
   return json(await fetch("/api/orders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }));
 }
 
 export type OrderAction = "confirm" | "release" | "reject" | "pack" | "ship" | "complete" | "note";
 export async function updateOrder(id: string, action: OrderAction, payload: Record<string, unknown> = {}) {
-  if (!isSupabaseConfigured) {
+  if (usesLocalDemoBrowser()) {
     if (action === "confirm") {
       const showInLive = payload.showInLive !== false;
       const paid = confirmDemoOrder(id, false);
@@ -162,7 +162,7 @@ export async function updateOrder(id: string, action: OrderAction, payload: Reco
 }
 
 export async function uploadPaymentProof(order: Order, file: File) {
-  if (!isSupabaseConfigured) return updateDemoOrder(order.id, { proofName: file.name, status: "pending_confirmation" });
+  if (usesLocalDemoBrowser()) return updateDemoOrder(order.id, { proofName: file.name, status: "pending_confirmation" });
   const formData = new FormData();
   formData.set("file", file);
   formData.set("accessToken", order.accessToken || "");
@@ -170,7 +170,7 @@ export async function uploadPaymentProof(order: Order, file: File) {
 }
 
 export async function getPaymentProofUrl(orderId: string) {
-  if (!isSupabaseConfigured) return null;
+  if (usesLocalDemoBrowser()) return null;
   return (await json<{ url: string }>(await fetch(`/api/orders/${orderId}/proof`, { cache: "no-store" }))).url;
 }
 
@@ -179,12 +179,9 @@ export async function publishOverlay(event: Omit<OverlayEvent, "id" | "createdAt
 }
 
 export async function setLiveProduct(productId: string) {
-  if (isHostedDemoBrowser()) {
-    return json<Product>(await fetch("/api/products/live", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ productId }) }));
-  }
-  if (!isSupabaseConfigured) {
+  if (usesLocalDemoBrowser()) {
     const product = setLiveDemoProduct(productId);
-    if (product) await publishOverlay({ type: "product", productCode: product.code, productName: product.name, productPrice: product.price, message: "Order via link bio atau WhatsApp", duration: 10, sound: false });
+    if (product) await publishOverlay({ type: "product", productCode: product.code, productName: product.name, productPrice: product.price, message: overlayOrderCta, duration: 10, sound: false });
     return product;
   }
   return json<Product>(await fetch("/api/products/live", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ productId }) }));
@@ -195,23 +192,23 @@ export async function getOverlayHealth(): Promise<OverlayHealth> {
 }
 
 export async function listLiveSessions(): Promise<LiveSession[]> {
-  if (!isSupabaseConfigured) return getDemoLiveSessions();
+  if (usesLocalDemoBrowser()) return getDemoLiveSessions();
   return json(await fetch("/api/live/session", { cache: "no-store" }));
 }
 
 export async function startLiveSession(name: string): Promise<LiveSession> {
-  if (!isSupabaseConfigured) return startDemoLiveSession(name);
+  if (usesLocalDemoBrowser()) return startDemoLiveSession(name);
   return json(await fetch("/api/live/session", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name }) }));
 }
 
 export async function endLiveSession(id: string): Promise<LiveSession | null> {
-  if (!isSupabaseConfigured) return endDemoLiveSession(id);
+  if (usesLocalDemoBrowser()) return endDemoLiveSession(id);
   return json(await fetch("/api/live/session", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id }) }));
 }
 
-export function activeDemoSession() { return isSupabaseConfigured ? null : getActiveDemoSession(); }
+export function activeDemoSession() { return usesLocalDemoBrowser() ? getActiveDemoSession() : null; }
 
 export async function listAuditLogs(): Promise<AuditLog[]> {
-  if (!isSupabaseConfigured) return getDemoAuditLogs();
+  if (usesLocalDemoBrowser()) return getDemoAuditLogs();
   return json(await fetch("/api/audit", { cache: "no-store" }));
 }
