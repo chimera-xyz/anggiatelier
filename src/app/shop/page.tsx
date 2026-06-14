@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { ShopClient } from "@/components/shop/shop-client";
 
 export const metadata: Metadata = {
-  title: "Belanja dari LIVE",
+  title: "Form Order",
 };
 
 export default function ShopPage() {
