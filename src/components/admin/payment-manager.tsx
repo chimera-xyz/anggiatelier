@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { CheckCircle2, Plus, Save, Trash2 } from "lucide-react";
 import { PaymentLogo } from "@/components/payment-logo";
 import { deletePaymentMethod, savePaymentMethod } from "@/lib/api-client";
-import { defaultQrisStaticPayload } from "@/lib/qris";
+import { defaultQrisStaticPayload, getQrisMerchantName } from "@/lib/qris";
 import type { PaymentMethodConfig, PaymentMethodDraft } from "@/lib/types";
 
 type ToastSetter = (toast: { message: string; type: "success" | "error" }) => void;
@@ -131,14 +131,21 @@ export function PaymentManager({ methods, refresh, toast }: { methods: PaymentMe
                 </div>
               </>
             ) : (
-              <div className="sm:col-span-2">
-                <Field label="Static payload QRIS">
-                  <textarea className="input-shell min-h-36 font-mono text-xs" value={draft.qrisPayload || ""} onChange={(event) => setDraft({ ...draft, qrisPayload: event.target.value })} />
-                </Field>
-                <button type="button" onClick={() => setDraft({ ...draft, qrisPayload: defaultQrisStaticPayload })} className="ghost-button mt-2 px-3 text-xs">
-                  Pakai core QRIS dari file lama
-                </button>
-              </div>
+              <>
+                <div className="sm:col-span-2">
+                  <Field label="Static payload QRIS">
+                    <textarea className="input-shell min-h-36 font-mono text-xs" value={draft.qrisPayload || ""} onChange={(event) => { const qrisPayload = event.target.value; setDraft({ ...draft, qrisPayload, accountHolder: getQrisMerchantName(qrisPayload) || draft.accountHolder }); }} />
+                  </Field>
+                  <button type="button" onClick={() => setDraft({ ...draft, qrisPayload: defaultQrisStaticPayload, accountHolder: getQrisMerchantName(defaultQrisStaticPayload) })} className="ghost-button mt-2 px-3 text-xs">
+                    Pakai core QRIS dari file lama
+                  </button>
+                </div>
+                <div className="sm:col-span-2">
+                  <Field label="Atas nama merchant QRIS">
+                    <input className="input-shell" value={draft.accountHolder || ""} onChange={(event) => setDraft({ ...draft, accountHolder: event.target.value })} placeholder="Nama yang tampil saat QR dipindai" />
+                  </Field>
+                </div>
+              </>
             )}
 
             <Field label="Urutan">

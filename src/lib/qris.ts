@@ -26,12 +26,31 @@ function removeTopLevelTags(payload: string, tags: Set<string>) {
   return cursor === payload.length ? next : payload;
 }
 
+function normalizeQrisPayload(payload: string) {
+  return payload.trim().replace(/[\r\n\t]+/g, "");
+}
+
+export function getQrisMerchantName(payload: string) {
+  const normalized = normalizeQrisPayload(payload);
+  let cursor = 0;
+  while (cursor + 4 <= normalized.length) {
+    const tag = normalized.slice(cursor, cursor + 2);
+    const length = Number(normalized.slice(cursor + 2, cursor + 4));
+    const start = cursor + 4;
+    const end = start + length;
+    if (!Number.isInteger(length) || length < 0 || end > normalized.length) return "";
+    if (tag === "59") return normalized.slice(start, end).trim();
+    cursor = end;
+  }
+  return "";
+}
+
 export function generateDynamicQrisPayload(staticPayload: string, amount: number, enableTip = false) {
   if (!Number.isSafeInteger(amount) || amount <= 0) {
     throw new Error("Nominal QRIS harus lebih dari 0.");
   }
 
-  const normalized = staticPayload.replace(/\s+/g, "");
+  const normalized = normalizeQrisPayload(staticPayload);
   const crcTagIndex = normalized.lastIndexOf("6304");
   if (crcTagIndex === -1) {
     throw new Error("Payload QRIS tidak valid: tag CRC 6304 tidak ditemukan.");

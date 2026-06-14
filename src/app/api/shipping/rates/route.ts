@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { products as demoProducts, shippingServices as demoServices } from "@/lib/seed";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { requestHostedDemo, usesHostedDemo } from "@/lib/demo-overlay-server";
 import { signShippingQuote } from "@/lib/shipping-quote";
 import type { ShippingOption } from "@/lib/types";
 
@@ -21,6 +22,15 @@ export async function POST(request: NextRequest) {
     if (!productRow) return NextResponse.json({ error: "Produk tidak ditemukan." }, { status: 404 });
     product = { ...demoProducts[0], id: productRow.id, name: productRow.name, price: productRow.price, weightGrams: productRow.weight_grams, lengthCm: productRow.length_cm, widthCm: productRow.width_cm, heightCm: productRow.height_cm };
     enabledServices = (serviceRows || []).map((row) => ({ id: row.id, courierCode: row.courier_code, courierName: row.courier_name, serviceCode: row.service_code, serviceName: row.service_name, flatPrice: row.flat_price, eta: row.eta, enabled: row.enabled, source: row.source }));
+  } else if (usesHostedDemo()) {
+    try {
+      const result = await requestHostedDemo<{ product: Record<string, unknown>; services: Record<string, unknown>[] }>("shipping_context", { productId });
+      const productRow = result.product;
+      product = { ...demoProducts[0], id: String(productRow.id), name: String(productRow.name), price: Number(productRow.price), weightGrams: Number(productRow.weight_grams), lengthCm: Number(productRow.length_cm), widthCm: Number(productRow.width_cm), heightCm: Number(productRow.height_cm) };
+      enabledServices = result.services.map((row) => ({ id: String(row.id), courierCode: String(row.courier_code), courierName: String(row.courier_name), serviceCode: String(row.service_code), serviceName: String(row.service_name), flatPrice: Number(row.flat_price), eta: String(row.eta), enabled: Boolean(row.enabled), source: row.source as "manual" | "biteship" }));
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Ongkir belum tersedia." }, { status: 502 });
+    }
   }
   if (!product) return NextResponse.json({ error: "Produk tidak ditemukan." }, { status: 404 });
 

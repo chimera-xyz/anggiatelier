@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { writeAudit } from "@/lib/audit-server";
+import { requestHostedDemo, usesHostedDemo } from "@/lib/demo-overlay-server";
 import { maskBuyerName } from "@/lib/format";
 import { publishOverlayEvent } from "@/lib/overlay-server";
 import { orderActionSchema } from "@/lib/schemas";
@@ -12,7 +13,17 @@ const orderSelect = "*, products(code,name,image_url)";
 export async function GET(request: NextRequest, context: Context) {
   const { id } = await context.params;
   const supabase = createServerSupabase();
-  if (!supabase) return NextResponse.json({ error: "Supabase belum dikonfigurasi." }, { status: 503 });
+  if (!supabase) {
+    if (!usesHostedDemo()) return NextResponse.json({ error: "Supabase belum dikonfigurasi." }, { status: 503 });
+    try {
+      const { order: row } = await requestHostedDemo<{ order: Record<string, unknown> }>("order_get", { orderId: id, token: request.nextUrl.searchParams.get("token") || "" });
+      const order = mapOrder(row);
+      return NextResponse.json({ id: order.id, orderNumber: order.orderNumber, status: order.status, productCode: order.productCode, productName: order.productName, productImage: order.productImage, color: order.color, size: order.size, subtotal: order.subtotal, shipping: order.shipping, paymentMethod: order.paymentMethod, paymentMethodId: order.paymentMethodId, paymentDetails: order.paymentDetails, total: order.total, reservedUntil: order.reservedUntil, accessToken: order.accessToken });
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Pesanan tidak ditemukan." }, { status: 404 });
+    }
+  }
+  await supabase.rpc("expire_reservations");
   const { data, error } = await supabase.from("orders").select(orderSelect).eq("id", id).single();
   if (error) return NextResponse.json({ error: "Pesanan tidak ditemukan." }, { status: 404 });
 

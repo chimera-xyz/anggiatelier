@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { writeAudit } from "@/lib/audit-server";
 import { defaultPaymentMethods } from "@/lib/payments";
+import { requestHostedDemo, usesHostedDemo } from "@/lib/demo-overlay-server";
 import { listPaymentMethodsServer, savePaymentMethodServer } from "@/lib/payment-server";
 import { paymentMethodConfigSchema } from "@/lib/schemas";
-import { verifyAdmin } from "@/lib/server-helpers";
+import { mapPaymentMethod, verifyAdmin } from "@/lib/server-helpers";
 import { createServerSupabase } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
@@ -11,7 +12,17 @@ export async function GET(request: NextRequest) {
   if (all && !verifyAdmin(request)) return NextResponse.json({ error: "Sesi admin tidak valid." }, { status: 401 });
 
   const supabase = createServerSupabase();
-  if (!supabase) return NextResponse.json(defaultPaymentMethods.filter((method) => all || method.enabled));
+  if (!supabase) {
+    if (usesHostedDemo() && !all) {
+      try {
+        const { payments } = await requestHostedDemo<{ payments: Record<string, unknown>[] }>("payments");
+        return NextResponse.json(payments.map(mapPaymentMethod));
+      } catch {
+        // Keep checkout usable with the safe local QRIS fallback.
+      }
+    }
+    return NextResponse.json(defaultPaymentMethods.filter((method) => all || method.enabled));
+  }
   return NextResponse.json(await listPaymentMethodsServer(supabase, all));
 }
 

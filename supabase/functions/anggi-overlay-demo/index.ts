@@ -27,6 +27,19 @@ function mapEvent(row: Record<string, unknown> | null) {
   };
 }
 
+function paymentDetails(row: Record<string, unknown>) {
+  return {
+    methodId: String(row.id),
+    type: row.type,
+    name: String(row.name),
+    bankCode: row.bank_code || undefined,
+    accountNumber: row.account_number || undefined,
+    accountHolder: row.account_holder || undefined,
+    qrisPayload: row.qris_payload || undefined,
+    instructions: row.instructions || undefined,
+  };
+}
+
 function adminKey() {
   const modernKeys = Deno.env.get("SUPABASE_SECRET_KEYS");
   if (modernKeys) {
@@ -55,6 +68,89 @@ Deno.serve(async (request) => {
       const { data, error } = await query;
       if (error) throw error;
       return response({ products: data || [] });
+    }
+
+    if (action === "payments") {
+      const { data, error } = await supabase.from("payment_methods").select("*").eq("enabled", true).order("sort_order").order("name");
+      if (error) throw error;
+      return response({ payments: data || [] });
+    }
+
+    if (action === "shipping_context") {
+      const productId = String(body.productId || "");
+      if (!productId) return response({ error: "Product ID wajib diisi." }, 400);
+      const [{ data: product, error: productError }, { data: services, error: serviceError }] = await Promise.all([
+        supabase.from("products").select("id,name,price,weight_grams,length_cm,width_cm,height_cm").eq("id", productId).eq("active", true).single(),
+        supabase.from("shipping_services").select("*").eq("enabled", true).order("flat_price"),
+      ]);
+      if (productError) throw productError;
+      if (serviceError) throw serviceError;
+      return response({ product, services: services || [] });
+    }
+
+    if (action === "reserve_order") {
+      const input = (body.input || {}) as Record<string, unknown>;
+      const address = (input.address || {}) as Record<string, unknown>;
+      const requestedShipping = (body.shipping || {}) as Record<string, unknown>;
+      const productId = String(input.productId || "");
+      const variantId = String(input.variantId || "");
+      const paymentMethodId = String(input.paymentMethodId || "");
+      const buyerName = String(input.buyerName || "").trim();
+      const whatsapp = String(input.whatsapp || "").trim();
+      if (!productId || !variantId || !paymentMethodId || buyerName.length < 2 || whatsapp.length < 8) {
+        return response({ error: "Data pesanan tidak lengkap." }, 400);
+      }
+      if (!String(address.line || "") || !String(address.city || "") || !String(address.postalCode || "").match(/^\d{5}$/)) {
+        return response({ error: "Alamat pengiriman tidak valid." }, 400);
+      }
+      const shippingId = String(requestedShipping.id || "");
+      if (!shippingId.startsWith("manual:")) return response({ error: "Layanan ongkir tidak valid." }, 400);
+      const serviceId = shippingId.slice("manual:".length);
+      const [{ data: method, error: methodError }, { data: service, error: serviceError }] = await Promise.all([
+        supabase.from("payment_methods").select("*").eq("id", paymentMethodId).eq("enabled", true).single(),
+        supabase.from("shipping_services").select("*").eq("id", serviceId).eq("enabled", true).single(),
+      ]);
+      if (methodError || !method) return response({ error: "Metode pembayaran tidak aktif atau tidak ditemukan." }, 400);
+      if (serviceError || !service) return response({ error: "Layanan ongkir tidak aktif atau tidak ditemukan." }, 400);
+      if (method.type !== input.paymentMethod) return response({ error: "Jenis pembayaran tidak cocok." }, 400);
+      const shipping = {
+        id: `manual:${service.id}`,
+        courier: service.courier_name,
+        service: service.service_name,
+        price: Number(service.flat_price),
+        eta: service.eta,
+      };
+      const { data: reserved, error: reserveError } = await supabase.rpc("reserve_order", {
+        p_product_id: productId,
+        p_variant_id: variantId,
+        p_source: input.source === "whatsapp" ? "whatsapp" : "website",
+        p_quantity: Math.max(1, Math.min(10, Number(input.quantity) || 1)),
+        p_buyer_name: buyerName,
+        p_whatsapp: whatsapp,
+        p_address: address,
+        p_shipping: shipping,
+        p_payment_method: method.type,
+        p_proof_name: null,
+      });
+      if (reserveError) throw reserveError;
+      const details = paymentDetails(method);
+      const { data: order, error: updateError } = await supabase.from("orders").update({
+        payment_method_id: method.id,
+        payment_details: details,
+      }).eq("id", reserved.id).select("*, products(code,name,image_url)").single();
+      if (updateError) throw updateError;
+      return response({ order });
+    }
+
+    if (action === "order_get") {
+      const orderId = String(body.orderId || "");
+      const token = String(body.token || "");
+      if (!orderId || !token) return response({ error: "Tautan pesanan tidak valid." }, 401);
+      await supabase.rpc("expire_reservations");
+      const { data: order, error } = await supabase.from("orders").select("*, products(code,name,image_url)").eq("id", orderId).single();
+      if (error || !order) return response({ error: "Pesanan tidak ditemukan." }, 404);
+      if (String(order.public_token) !== token) return response({ error: "Tautan pesanan tidak valid." }, 401);
+      return response({ order });
     }
 
     if (action === "set_live_product") {
@@ -155,6 +251,11 @@ Deno.serve(async (request) => {
     return response({ error: "Action overlay tidak dikenal." }, 400);
   } catch (error) {
     console.error(error);
-    return response({ error: error instanceof Error ? error.message : "Operasi overlay gagal." }, 500);
+    const message = error instanceof Error
+      ? error.message
+      : typeof error === "object" && error && "message" in error
+        ? String(error.message)
+        : "Operasi overlay gagal.";
+    return response({ error: message }, 500);
   }
 });

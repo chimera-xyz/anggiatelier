@@ -32,7 +32,7 @@ values
   ('bank_transfer','BCA','bca',null,'ANGGI ATELIER',null,'Isi nomor rekening dari menu Payment sebelum live.',false,10),
   ('bank_transfer','Blu BCA Digital','blu-bca',null,'ANGGI ATELIER',null,'Isi nomor rekening dari menu Payment sebelum live.',false,20),
   ('bank_transfer','SeaBank','seabank',null,'ANGGI ATELIER',null,'Isi nomor rekening dari menu Payment sebelum live.',false,30),
-  ('qris','QRIS Dinamis',null,null,null,'00020101021126610014COM.GO-JEK.WWW01189360091436762029880210G6762029880303UMI51440014ID.CO.QRIS.WWW0215ID10254004132540303UMI5204573253033605802ID5912iPhone Haven6013JAKARTA TIMUR61051341062070703A016304F93B','QRIS otomatis mengikuti total produk dan ongkir.',true,40)
+  ('qris','QRIS Dinamis',null,null,'iPhone Haven','00020101021126610014COM.GO-JEK.WWW01189360091436762029880210G6762029880303UMI51440014ID.CO.QRIS.WWW0215ID10254004132540303UMI5204573253033605802ID5912iPhone Haven6013JAKARTA TIMUR61051341062070703A016304F93B','QRIS otomatis mengikuti total produk dan ongkir.',true,40)
 on conflict (name) do update set
   type = excluded.type,
   bank_code = excluded.bank_code,

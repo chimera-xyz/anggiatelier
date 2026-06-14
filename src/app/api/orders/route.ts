@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { writeAudit } from "@/lib/audit-server";
 import { paymentDetailsFromConfig } from "@/lib/payments";
+import { requestHostedDemo, usesHostedDemo } from "@/lib/demo-overlay-server";
 import { resolvePaymentMethodServer } from "@/lib/payment-server";
 import { enforceRateLimit, requestIp } from "@/lib/rate-limit";
 import { newOrderSchema } from "@/lib/schemas";
@@ -56,7 +57,16 @@ export async function POST(request: NextRequest) {
   if (!shipping) return NextResponse.json({ error: "Pilihan ongkir sudah kedaluwarsa atau tidak valid. Muat ulang ongkir." }, { status: 400 });
 
   const supabase = createServerSupabase();
-  if (!supabase) return NextResponse.json({ error: "Supabase belum dikonfigurasi." }, { status: 503 });
+  if (!supabase) {
+    if (!usesHostedDemo()) return NextResponse.json({ error: "Supabase belum dikonfigurasi." }, { status: 503 });
+    try {
+      const { order: row } = await requestHostedDemo<{ order: Record<string, unknown> }>("reserve_order", { input, shipping });
+      return NextResponse.json(mapOrder(row), { status: 201 });
+    } catch (error) {
+      const failure = orderFailure(error instanceof Error ? error.message : "Pesanan gagal dibuat.");
+      return NextResponse.json({ error: failure.message }, { status: failure.status });
+    }
+  }
   let paymentMethod: PaymentMethodConfig;
   try {
     paymentMethod = await resolvePaymentMethodServer(supabase, input.paymentMethodId, input.paymentMethod);

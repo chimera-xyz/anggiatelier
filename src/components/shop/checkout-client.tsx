@@ -27,6 +27,7 @@ import { bankAccount, adminWhatsApp } from "@/lib/config";
 import { createOrder, getOrder, getShippingRates, listPaymentMethods, listProducts, uploadPaymentProof } from "@/lib/api-client";
 import { formatRupiah, whatsappInvoiceTemplate } from "@/lib/format";
 import { defaultPaymentMethods, paymentDetailsFromConfig } from "@/lib/payments";
+import { formatPaymentDeadline, paymentWindowMinutes } from "@/lib/order-policy";
 import { generateDynamicQrisPayload } from "@/lib/qris";
 import type { Order, PaymentDetails, PaymentMethodConfig, Product, ShippingOption } from "@/lib/types";
 
@@ -188,8 +189,7 @@ export function CheckoutClient({ initialCode, initialColor, initialSize }: Props
   }
 
   if (order) {
-    const waiting = order.status === "pending_confirmation";
-    return <OrderSuccess order={order} waiting={waiting} proofUploading={proofUploading} uploadProof={uploadProof} invoiceLink={invoiceLink} />;
+    return <OrderSuccess order={order} proofUploading={proofUploading} uploadProof={uploadProof} invoiceLink={invoiceLink} />;
   }
 
   return (
@@ -257,11 +257,7 @@ export function CheckoutClient({ initialCode, initialColor, initialSize }: Props
               ))}
               {!paymentMethods.length ? <p className="rounded-2xl border border-[#efc7cc] bg-[#fff6f7] p-4 text-sm text-[#9a3451] sm:col-span-2">Metode pembayaran belum tersedia.</p> : null}
             </div>
-            {selectedPayment?.type === "qris" ? (
-              <div className="mt-5">
-                {qrisPayload && selectedShipping ? <QrisCode payload={qrisPayload} label={`QRIS ${selectedPayment.name} · ${formatRupiah(total)}`} /> : <p className="rounded-2xl border border-[#eadedd] bg-[#fff9f7] p-4 text-sm text-[#756a6e]">Pilih kurir dulu agar nominal QRIS final.</p>}
-              </div>
-            ) : null}
+            {selectedPayment ? <PaymentInformation method={selectedPayment} total={total} qrisPayload={qrisPayload} ready={Boolean(selectedShipping)} /> : null}
           </section>
 
           <section className="surface p-5 sm:p-7">
@@ -275,7 +271,7 @@ export function CheckoutClient({ initialCode, initialColor, initialSize }: Props
             <button type="submit" disabled={!agreed || !selectedShipping || !selectedPayment || !variant || submitting} className="primary-button mt-6 min-h-[56px] w-full text-base">
               {submitting ? <LoaderCircle className="size-5 animate-spin" /> : <ShieldCheck className="size-5" />} Buat Pesanan
             </button>
-            <p className="mt-3 flex items-center justify-center gap-2 text-center text-[11px] text-[#8a7c81]"><Clock3 className="size-3.5" /> Reservasi berlaku 30 menit setelah pesanan dibuat.</p>
+            <p className="mt-3 flex items-center justify-center gap-2 text-center text-[11px] text-[#8a7c81]"><Clock3 className="size-3.5" /> Selesaikan pembayaran maksimal {paymentWindowMinutes} menit setelah pesanan dibuat.</p>
           </section>
         </div>
       </form>
@@ -284,7 +280,7 @@ export function CheckoutClient({ initialCode, initialColor, initialSize }: Props
   );
 }
 
-function OrderSuccess({ order, waiting, proofUploading, uploadProof, invoiceLink }: { order: Order; waiting: boolean; proofUploading: boolean; uploadProof: (file?: File) => void; invoiceLink: string }) {
+function OrderSuccess({ order, proofUploading, uploadProof, invoiceLink }: { order: Order; proofUploading: boolean; uploadProof: (file?: File) => void; invoiceLink: string }) {
   const payment: PaymentDetails = order.paymentDetails || {
     type: order.paymentMethod,
     name: bankAccount.bank,
@@ -299,6 +295,11 @@ function OrderSuccess({ order, waiting, proofUploading, uploadProof, invoiceLink
       qrisPayload = "";
     }
   }
+  const remainingSeconds = usePaymentCountdown(order.reservedUntil);
+  const activeReservation = ["reserved", "awaiting_payment", "pending_confirmation"].includes(order.status);
+  const expired = ["cancelled", "rejected"].includes(order.status) || (activeReservation && remainingSeconds <= 0);
+  const waiting = order.status === "pending_confirmation" && !expired;
+  const paid = order.status === "paid";
 
   return (
     <main className="min-h-screen bg-[#fffaf6] paper-noise px-4 py-6 sm:px-6 sm:py-10">
@@ -308,7 +309,8 @@ function OrderSuccess({ order, waiting, proofUploading, uploadProof, invoiceLink
           <div className="bg-[#4a1326] px-6 py-7 text-white sm:px-9">
             <div className="flex size-12 items-center justify-center rounded-full bg-white/12"><PackageCheck className="size-6 text-[#f2b6c5]" /></div>
             <h1 className="mt-5 font-display text-4xl font-semibold">Pesanan berhasil dibuat</h1>
-            <p className="mt-2 text-sm text-white/70">Nomor pesanan <strong className="text-white">{order.orderNumber}</strong>. Stok dikunci selama 30 menit.</p>
+            <p className="mt-2 text-sm text-white/70">Nomor pesanan <strong className="text-white">{order.orderNumber}</strong>. Stok dikunci selama {paymentWindowMinutes} menit.</p>
+            <PaymentCountdown remainingSeconds={remainingSeconds} deadline={order.reservedUntil} paid={paid} expired={expired} />
           </div>
           <div className="grid gap-7 p-6 sm:p-9 lg:grid-cols-[1fr_.88fr]">
             <div>
@@ -323,12 +325,13 @@ function OrderSuccess({ order, waiting, proofUploading, uploadProof, invoiceLink
                 <div className="rounded-2xl border border-[#e6c2ca] bg-[#fff3f6] p-5">
                   <div className="mb-4 flex items-center gap-3"><PaymentLogo payment={payment} compact /><h3 className="font-bold">{payment.name}</h3></div>
                   {qrisPayload ? <QrisCode payload={qrisPayload} label={`Total ${formatRupiah(order.total)}`} /> : <p className="rounded-xl bg-white p-4 text-xs text-[#9a3451]">Payload QRIS belum valid. Hubungi admin untuk pembayaran manual.</p>}
+                  <PaymentMeta holder={payment.accountHolder} total={order.total} deadline={order.reservedUntil} />
                 </div>
               ) : (
-                <div className="rounded-2xl border border-[#e6c2ca] bg-[#fff3f6] p-5"><div className="flex items-center gap-3"><PaymentLogo payment={payment} compact /><h3 className="font-bold">Transfer manual</h3></div><p className="mt-4 text-xs uppercase tracking-[0.12em] text-[#8b6f78]">{payment.name}</p><div className="mt-1 flex items-center justify-between gap-3"><strong className="text-xl tracking-[0.06em]">{payment.accountNumber || "Hubungi admin"}</strong>{payment.accountNumber ? <button onClick={() => navigator.clipboard.writeText(payment.accountNumber || "")} className="rounded-lg border border-[#e2b8c3] bg-white p-2 text-[#8a2949]" aria-label="Salin rekening"><Copy className="size-4" /></button> : null}</div><p className="mt-1 text-xs text-[#756a6e]">a.n. {payment.accountHolder || bankAccount.holder}</p></div>
+                <div className="rounded-2xl border border-[#e6c2ca] bg-[#fff3f6] p-5"><div className="flex items-center gap-3"><PaymentLogo payment={payment} compact /><h3 className="font-bold">Transfer {payment.name}</h3></div><p className="mt-4 text-xs uppercase tracking-[0.12em] text-[#8b6f78]">Nomor rekening</p><div className="mt-1 flex items-center justify-between gap-3"><strong className="text-xl tracking-[0.06em]">{payment.accountNumber || "Hubungi admin"}</strong>{payment.accountNumber ? <button onClick={() => navigator.clipboard.writeText(payment.accountNumber || "")} className="rounded-lg border border-[#e2b8c3] bg-white p-2 text-[#8a2949]" aria-label="Salin rekening"><Copy className="size-4" /></button> : null}</div><PaymentMeta holder={payment.accountHolder || bankAccount.holder} total={order.total} deadline={order.reservedUntil} /></div>
               )}
               <div className="mt-5 rounded-2xl border border-dashed border-[#dba5b3] p-5 text-center">
-                {waiting ? <><CheckCircle2 className="mx-auto size-9 text-[#218457]" /><h3 className="mt-3 font-bold">Bukti sudah diterima</h3><p className="mt-1 text-xs leading-5 text-[#756a6e]">Menunggu konfirmasi admin. Notifikasi LIVE muncul setelah admin menyetujui pembayaran.</p></> : <><UploadCloud className="mx-auto size-9 text-[#bf4a6a]" /><h3 className="mt-3 font-bold">Unggah bukti pembayaran</h3><p className="mt-1 text-xs leading-5 text-[#756a6e]">JPG, PNG, WebP, atau PDF maksimal 5 MB.</p><label className="primary-button mt-4 w-full">{proofUploading ? <LoaderCircle className="size-4 animate-spin" /> : <FileCheck2 className="size-4" />} Pilih Bukti<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="sr-only" disabled={proofUploading} onChange={(event) => uploadProof(event.target.files?.[0])} /></label></>}
+                {expired ? <><Clock3 className="mx-auto size-9 text-[#b4234a]" /><h3 className="mt-3 font-bold text-[#9a2345]">Waktu pembayaran habis</h3><p className="mt-1 text-xs leading-5 text-[#756a6e]">Reservasi sudah dilepas. Produk dapat dipesan buyer lain; buat pesanan baru jika masih tersedia.</p></> : paid ? <><CheckCircle2 className="mx-auto size-9 text-[#218457]" /><h3 className="mt-3 font-bold">Pembayaran dikonfirmasi</h3><p className="mt-1 text-xs leading-5 text-[#756a6e]">Order aman dan masuk proses admin.</p></> : waiting ? <><CheckCircle2 className="mx-auto size-9 text-[#218457]" /><h3 className="mt-3 font-bold">Bukti sudah diterima</h3><p className="mt-1 text-xs leading-5 text-[#756a6e]">Menunggu konfirmasi admin. Notifikasi LIVE muncul setelah admin menyetujui pembayaran.</p></> : <><UploadCloud className="mx-auto size-9 text-[#bf4a6a]" /><h3 className="mt-3 font-bold">Unggah bukti pembayaran</h3><p className="mt-1 text-xs leading-5 text-[#756a6e]">Kirim sebelum timer habis. JPG, PNG, WebP, atau PDF maksimal 5 MB.</p><label className="primary-button mt-4 w-full">{proofUploading ? <LoaderCircle className="size-4 animate-spin" /> : <FileCheck2 className="size-4" />} Pilih Bukti<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="sr-only" disabled={proofUploading} onChange={(event) => uploadProof(event.target.files?.[0])} /></label></>}
               </div>
               <a href={invoiceLink} target="_blank" rel="noreferrer" className="secondary-button mt-4 w-full"><MessageCircle className="size-4" /> Hubungi Admin</a>
             </div>
@@ -353,4 +356,59 @@ function PaymentChoice({ active, onClick, method }: { active: boolean; onClick: 
       </span>
     </button>
   );
+}
+
+function PaymentInformation({ method, total, qrisPayload, ready }: { method: PaymentMethodConfig; total: number; qrisPayload: string; ready: boolean }) {
+  const holder = method.accountHolder || (method.type === "qris" ? "Nama merchant muncul saat QR dipindai" : "Belum diatur");
+  return (
+    <div className="mt-5 overflow-hidden rounded-2xl border border-[#e5c5cd] bg-[linear-gradient(145deg,#fff8f7,#fff0f4)]">
+      <div className="flex items-center gap-3 border-b border-[#ecd6db] px-4 py-4 sm:px-5">
+        <PaymentLogo payment={method} compact />
+        <div className="min-w-0 flex-1"><p className="text-[10px] font-extrabold uppercase tracking-[.14em] text-[#a33c5b]">Metode terpilih</p><h3 className="truncate font-bold">{method.name}</h3></div>
+        <span className="rounded-full bg-[#4a1326] px-3 py-1 text-[10px] font-black text-white">{paymentWindowMinutes} MENIT</span>
+      </div>
+      <div className="p-4 sm:p-5">
+        {method.type === "bank_transfer" ? (
+          <div className="rounded-xl bg-white p-4 shadow-sm">
+            <p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#8b6f78]">Nomor rekening</p>
+            <div className="mt-1 flex items-center justify-between gap-3"><strong className="text-xl tracking-[.06em]">{method.accountNumber || "Belum tersedia"}</strong>{method.accountNumber ? <button type="button" onClick={() => navigator.clipboard.writeText(method.accountNumber || "")} className="rounded-lg border border-[#e2b8c3] p-2 text-[#8a2949]" aria-label="Salin nomor rekening"><Copy className="size-4" /></button> : null}</div>
+          </div>
+        ) : ready && qrisPayload ? <QrisCode payload={qrisPayload} label={`QRIS ${method.name} · ${formatRupiah(total)}`} /> : <p className="rounded-xl bg-white p-4 text-sm text-[#756a6e]">Pilih kurir dulu agar nominal QRIS final.</p>}
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <PaymentInfoItem label={method.type === "qris" ? "Atas nama QRIS" : "Atas nama rekening"} value={holder} />
+          <PaymentInfoItem label="Total pembayaran" value={ready ? formatRupiah(total) : "Pilih kurir dulu"} strong />
+        </div>
+        <div className="mt-4 flex items-start gap-2 rounded-xl bg-[#4a1326] px-4 py-3 text-xs leading-5 text-white"><Clock3 className="mt-0.5 size-4 shrink-0 text-[#f4b5c5]" /><p>Timer dimulai setelah pesanan dibuat. Bayar dan kirim bukti maksimal <strong>{paymentWindowMinutes} menit</strong>; setelah itu stok otomatis bisa dipesan buyer lain.</p></div>
+      </div>
+    </div>
+  );
+}
+
+function PaymentMeta({ holder, total, deadline }: { holder?: string; total: number; deadline: string }) {
+  return <div className="mt-4 grid gap-3"><PaymentInfoItem label="Atas nama" value={holder || "Konfirmasi ke admin"} /><PaymentInfoItem label="Total pembayaran" value={formatRupiah(total)} strong /><PaymentInfoItem label="Bayar sebelum" value={`${formatPaymentDeadline(deadline)} WIB`} /></div>;
+}
+
+function PaymentInfoItem({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+  return <div className="rounded-xl border border-[#ecdde0] bg-white px-4 py-3"><span className="block text-[10px] font-bold uppercase tracking-[.1em] text-[#8b6f78]">{label}</span><strong className={`mt-1 block break-words ${strong ? "text-lg text-[#9c2347]" : "text-sm"}`}>{value}</strong></div>;
+}
+
+function secondsUntil(deadline: string) {
+  return Math.max(0, Math.ceil((new Date(deadline).getTime() - Date.now()) / 1000));
+}
+
+function usePaymentCountdown(deadline: string) {
+  const [remaining, setRemaining] = useState(() => secondsUntil(deadline));
+  useEffect(() => {
+    const update = () => setRemaining(secondsUntil(deadline));
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [deadline]);
+  return remaining;
+}
+
+function PaymentCountdown({ remainingSeconds, deadline, paid, expired }: { remainingSeconds: number; deadline: string; paid: boolean; expired: boolean }) {
+  const minutes = Math.floor(remainingSeconds / 60).toString().padStart(2, "0");
+  const seconds = (remainingSeconds % 60).toString().padStart(2, "0");
+  return <div className={`mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 ${paid ? "border-emerald-300/30 bg-emerald-400/15" : expired ? "border-red-300/30 bg-red-400/15" : "border-white/15 bg-white/10"}`}><div><p className="text-[10px] font-extrabold uppercase tracking-[.14em] text-white/60">{paid ? "Status pembayaran" : expired ? "Reservasi berakhir" : "Sisa waktu pembayaran"}</p><strong className="mt-1 block text-sm">{paid ? "Sudah dikonfirmasi" : expired ? `${formatPaymentDeadline(deadline)} WIB` : `Bayar sebelum ${formatPaymentDeadline(deadline)} WIB`}</strong></div>{!paid && !expired ? <strong className="font-mono text-3xl tracking-[.08em]">{minutes}:{seconds}</strong> : null}</div>;
 }

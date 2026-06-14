@@ -3,6 +3,8 @@
 import { products as seedProducts, seedOrders, shippingServices as seedShippingServices, paymentMethods as seedPaymentMethods } from "./seed";
 import { maskBuyerName } from "./format";
 import { paymentDetailsFromConfig } from "./payments";
+import { paymentWindowMs } from "./order-policy";
+import { getQrisMerchantName } from "./qris";
 import type {
   AuditLog,
   LiveSession,
@@ -81,9 +83,15 @@ function rawProducts() {
 }
 
 function normalizePaymentMethods(methods: PaymentMethodConfig[]) {
-  return methods.map((method) => method.name.toLowerCase().includes("shield")
-    ? { ...method, id: method.id === "pay-shield-bank" ? "pay-seabank" : method.id, name: "SeaBank", bankCode: "seabank" }
-    : method);
+  return methods.map((method) => {
+    if (method.name.toLowerCase().includes("shield")) {
+      return { ...method, id: method.id === "pay-shield-bank" ? "pay-seabank" : method.id, name: "SeaBank", bankCode: "seabank" };
+    }
+    if (method.type === "qris" && method.qrisPayload) {
+      return { ...method, accountHolder: getQrisMerchantName(method.qrisPayload) || method.accountHolder };
+    }
+    return method;
+  });
 }
 
 function reconcileReservations(products: Product[], orders: Order[]) {
@@ -258,7 +266,7 @@ export function createDemoOrder(input: NewOrderInput) {
     subtotal: product.price * input.quantity,
     total: product.price * input.quantity + input.shipping.price,
     createdAt: now.toISOString(),
-    reservedUntil: new Date(now.getTime() + 30 * 60_000).toISOString(),
+    reservedUntil: new Date(now.getTime() + paymentWindowMs).toISOString(),
     accessToken: crypto.randomUUID(),
     fulfillmentStatus: "unfulfilled",
     liveSessionId: session?.id,

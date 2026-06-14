@@ -1,4 +1,4 @@
-import { defaultQrisStaticPayload } from "./qris";
+import { defaultQrisStaticPayload, getQrisMerchantName } from "./qris";
 import type { PaymentDetails, PaymentMethod, PaymentMethodConfig } from "./types";
 
 const holder = process.env.NEXT_PUBLIC_BANK_HOLDER || "ANGGI ATELIER";
@@ -42,6 +42,7 @@ export const defaultPaymentMethods: PaymentMethodConfig[] = [
     id: "pay-qris",
     type: "qris",
     name: "QRIS Dinamis",
+    accountHolder: getQrisMerchantName(defaultQrisStaticPayload),
     qrisPayload: defaultQrisStaticPayload,
     instructions: "QRIS otomatis mengikuti total produk dan ongkir.",
     enabled: true,
@@ -56,7 +57,7 @@ export function paymentDetailsFromConfig(method: PaymentMethodConfig): PaymentDe
     name: method.name,
     bankCode: method.bankCode,
     accountNumber: method.accountNumber,
-    accountHolder: method.accountHolder,
+    accountHolder: method.accountHolder || (method.type === "qris" && method.qrisPayload ? getQrisMerchantName(method.qrisPayload) : undefined),
     qrisPayload: method.qrisPayload,
     instructions: method.instructions,
   };
