@@ -95,6 +95,15 @@ Deno.serve(async (request) => {
       return response({ orders: data || [] });
     }
 
+    if (action === "admin_order_get") {
+      const id = String(body.id || "");
+      if (!id) return response({ error: "Pesanan tidak ditemukan." }, 404);
+      await supabase.rpc("expire_reservations");
+      const { data, error } = await supabase.from("orders").select("*, products(code,name,image_url)").eq("id", id).single();
+      if (error || !data) return response({ error: "Pesanan tidak ditemukan." }, 404);
+      return response({ order: data });
+    }
+
     if (action === "admin_payments") {
       const { data, error } = await supabase.from("payment_methods").select("*").order("sort_order").order("name");
       if (error) throw error;
