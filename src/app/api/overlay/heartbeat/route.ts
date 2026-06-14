@@ -10,7 +10,11 @@ export async function POST(request: NextRequest) {
   if (!clientId) return NextResponse.json({ error: "Client ID wajib diisi." }, { status: 400 });
   const supabase = createServerSupabase();
   if (!supabase) {
-    heartbeatDemoOverlayClient(clientId, request.headers.get("user-agent"));
+    try {
+      await heartbeatDemoOverlayClient(clientId, request.headers.get("user-agent"));
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Heartbeat overlay gagal." }, { status: 502 });
+    }
   } else {
     const { error } = await supabase.from("overlay_clients").upsert({
       client_id: clientId,

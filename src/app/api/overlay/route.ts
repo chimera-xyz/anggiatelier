@@ -11,7 +11,13 @@ export async function POST(request: NextRequest) {
   const parsed = overlaySchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message || "Data overlay tidak valid." }, { status: 400 });
   const supabase = createServerSupabase();
-  if (!supabase) return NextResponse.json(publishDemoOverlayEvent(parsed.data));
+  if (!supabase) {
+    try {
+      return NextResponse.json(await publishDemoOverlayEvent(parsed.data));
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Overlay demo gagal dikirim." }, { status: 502 });
+    }
+  }
   try {
     const event = await publishOverlayEvent(supabase, parsed.data);
     await writeAudit(supabase, "overlay.published", "overlay_event", event.id, { type: event.type, productCode: event.productCode });

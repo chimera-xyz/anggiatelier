@@ -8,7 +8,13 @@ export async function GET(request: NextRequest) {
   if (!verifyAdmin(request)) return NextResponse.json({ error: "Sesi admin tidak valid." }, { status: 401 });
   const supabase = createServerSupabase();
   const origin = process.env.NEXT_PUBLIC_SITE_URL || request.nextUrl.origin;
-  if (!supabase) return NextResponse.json({ ...getDemoOverlayHealth(), streamUrl: streamUrl(origin) });
+  if (!supabase) {
+    try {
+      return NextResponse.json({ ...(await getDemoOverlayHealth()), streamUrl: streamUrl(origin) });
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Status overlay tidak tersedia." }, { status: 502 });
+    }
+  }
   const cutoff = new Date(Date.now() - 20_000).toISOString();
   const [{ data: clients, count }, { data: latest }] = await Promise.all([
     supabase.from("overlay_clients").select("last_seen", { count: "exact" }).gte("last_seen", cutoff).order("last_seen", { ascending: false }),

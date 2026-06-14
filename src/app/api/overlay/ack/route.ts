@@ -11,8 +11,12 @@ export async function POST(request: NextRequest) {
   if (!eventId || !clientId) return NextResponse.json({ error: "Event dan client ID wajib diisi." }, { status: 400 });
   const supabase = createServerSupabase();
   if (!supabase) {
-    const event = acknowledgeDemoOverlayEvent(eventId, clientId);
-    return event ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "Event tidak ditemukan." }, { status: 404 });
+    try {
+      const event = await acknowledgeDemoOverlayEvent(eventId, clientId);
+      return event ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "Event tidak ditemukan." }, { status: 404 });
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Acknowledgement overlay gagal." }, { status: 502 });
+    }
   }
   const { data: event } = await supabase.from("overlay_events").select("delivery_count").eq("id", eventId).single();
   if (!event) return NextResponse.json({ error: "Event tidak ditemukan." }, { status: 404 });
