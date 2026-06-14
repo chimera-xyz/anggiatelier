@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { Check, MessageCircle, Radio, ShoppingBag } from "lucide-react";
+import { Check, MessageCircle, ShoppingBag } from "lucide-react";
 import { createBrowserSupabase } from "@/lib/supabase/client";
 import { listProducts } from "@/lib/api-client";
 import { formatRupiah } from "@/lib/format";
@@ -176,11 +176,9 @@ function ProductOverlay({ product }: { product: Product | null }) {
   if (!product) return null;
   return (
     <section className="overlay-widget overlay-product">
-      <div className="overlay-product-code"><span>Kode produk</span><strong>{product.code}</strong></div>
-      <div className="overlay-product-rule" />
-      <h1>{product.name}</h1>
-      <p className="overlay-product-price">{formatRupiah(product.price)}</p>
-      <p className="overlay-product-order"><MessageCircle aria-hidden="true" /> Order via link bio atau WhatsApp</p>
+      <div className="overlay-product-code"><span>Kode</span><strong>{product.code}</strong></div>
+      <div className="overlay-product-body"><h1>{product.name}</h1><div className="overlay-product-rule" /><p className="overlay-product-price">{formatRupiah(product.price)}</p></div>
+      <p className="overlay-product-order"><span><MessageCircle aria-hidden="true" /></span> Order via link bio atau WhatsApp</p>
     </section>
   );
 }
@@ -197,8 +195,8 @@ function BrandOverlay() {
 function FooterOverlay() {
   return (
     <footer className="overlay-widget overlay-footer">
-      <span className="overlay-footer-icon"><Radio aria-hidden="true" /></span>
       <div><strong>KETIK KODE + WARNA</strong><p>Pesan via link bio atau WhatsApp admin</p></div>
+      <span className="overlay-footer-icon"><MessageCircle aria-hidden="true" /></span>
     </footer>
   );
 }
