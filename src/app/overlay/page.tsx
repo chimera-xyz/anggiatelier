@@ -7,5 +7,5 @@ type Props = { searchParams: Promise<{ preview?: string }> };
 
 export default async function OverlayPage({ searchParams }: Props) {
   const params = await searchParams;
-  return <LiveOverlay preview={params.preview === "1"} />;
+  return <LiveOverlay layer="purchase" preview={params.preview === "1"} />;
 }

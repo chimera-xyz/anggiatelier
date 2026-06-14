@@ -7,11 +7,11 @@ const hostedDemoUrl =
   process.env.HOSTED_DEMO_OVERLAY_URL ||
   "https://slswehtkrutimadzizco.supabase.co/functions/v1/anggi-overlay-demo";
 
-function usesHostedDemo() {
+export function usesHostedDemo() {
   return process.env.VERCEL === "1";
 }
 
-async function requestHostedDemo<T>(action: string, payload: Record<string, unknown> = {}) {
+export async function requestHostedDemo<T>(action: string, payload: Record<string, unknown> = {}) {
   const response = await fetch(hostedDemoUrl, {
     method: "POST",
     headers: {

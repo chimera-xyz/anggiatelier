@@ -1,6 +1,6 @@
 "use client";
 
-import { demoAdminPin, isSupabaseConfigured } from "./config";
+import { demoAdminPin, isHostedDemoBrowser, isSupabaseConfigured } from "./config";
 import {
   archiveDemoProduct,
   confirmDemoOrder,
@@ -62,6 +62,7 @@ export async function logoutAdmin() {
 }
 
 export async function listProducts(all = false): Promise<Product[]> {
+  if (isHostedDemoBrowser()) return json(await fetch(`/api/products${all ? "?all=1" : ""}`, { cache: "no-store" }));
   if (!isSupabaseConfigured) return getDemoProducts().filter((product) => all || product.active);
   return json(await fetch(`/api/products${all ? "?all=1" : ""}`, { cache: "no-store" }));
 }
@@ -158,6 +159,9 @@ export async function publishOverlay(event: Omit<OverlayEvent, "id" | "createdAt
 }
 
 export async function setLiveProduct(productId: string) {
+  if (isHostedDemoBrowser()) {
+    return json<Product>(await fetch("/api/products/live", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ productId }) }));
+  }
   if (!isSupabaseConfigured) {
     const product = setLiveDemoProduct(productId);
     if (product) await publishOverlay({ type: "product", productCode: product.code, productName: product.name, productPrice: product.price, message: "Order via link bio atau WhatsApp", duration: 10, sound: false });

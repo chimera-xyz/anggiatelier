@@ -49,6 +49,24 @@ Deno.serve(async (request) => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    if (action === "products") {
+      let query = supabase.from("products").select("*, product_variants(*)").order("code");
+      if (!body.all) query = query.eq("active", true);
+      const { data, error } = await query;
+      if (error) throw error;
+      return response({ products: data || [] });
+    }
+
+    if (action === "set_live_product") {
+      const productId = String(body.productId || "");
+      if (!productId) return response({ error: "Product ID wajib diisi." }, 400);
+      const { error: updateError } = await supabase.rpc("set_live_product", { p_product_id: productId });
+      if (updateError) throw updateError;
+      const { data, error } = await supabase.from("products").select("*, product_variants(*)").eq("id", productId).single();
+      if (error) throw error;
+      return response({ product: data });
+    }
+
     if (action === "publish") {
       const event = (body.event || {}) as Record<string, unknown>;
       const type = event.type === "purchase" ? "purchase" : event.type === "product" ? "product" : "";

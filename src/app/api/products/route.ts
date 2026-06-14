@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { products as demoProducts } from "@/lib/seed";
+import { requestHostedDemo, usesHostedDemo } from "@/lib/demo-overlay-server";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { mapProduct, verifyAdmin } from "@/lib/server-helpers";
 import { productSchema } from "@/lib/schemas";
@@ -7,7 +8,19 @@ import { writeAudit } from "@/lib/audit-server";
 
 export async function GET(request: NextRequest) {
   const supabase = createServerSupabase();
-  if (!supabase) return NextResponse.json(demoProducts.filter((product) => product.active));
+  if (!supabase) {
+    if (usesHostedDemo()) {
+      try {
+        const { products } = await requestHostedDemo<{ products: Record<string, unknown>[] }>("products", {
+          all: verifyAdmin(request) && request.nextUrl.searchParams.get("all") === "1",
+        });
+        return NextResponse.json(products.map(mapProduct));
+      } catch (error) {
+        return NextResponse.json({ error: error instanceof Error ? error.message : "Produk demo tidak tersedia." }, { status: 502 });
+      }
+    }
+    return NextResponse.json(demoProducts.filter((product) => product.active));
+  }
   let query = supabase.from("products").select("*, product_variants(*)").order("code");
   if (!verifyAdmin(request) || request.nextUrl.searchParams.get("all") !== "1") query = query.eq("active", true);
   const { data, error } = await query;
