@@ -2,6 +2,7 @@ import { defaultQrisStaticPayload } from "./qris";
 import type { PaymentDetails, PaymentMethod, PaymentMethodConfig } from "./types";
 
 const holder = process.env.NEXT_PUBLIC_BANK_HOLDER || "ANGGI ATELIER";
+const bcaAccount = process.env.NEXT_PUBLIC_BANK_ACCOUNT?.trim() || "";
 
 export const defaultPaymentMethods: PaymentMethodConfig[] = [
   {
@@ -9,10 +10,10 @@ export const defaultPaymentMethods: PaymentMethodConfig[] = [
     type: "bank_transfer",
     name: "BCA",
     bankCode: "bca",
-    accountNumber: process.env.NEXT_PUBLIC_BANK_ACCOUNT || "1234567890",
+    accountNumber: bcaAccount,
     accountHolder: holder,
     instructions: "Transfer sesuai total order, lalu kirim bukti pembayaran.",
-    enabled: true,
+    enabled: Boolean(bcaAccount),
     sortOrder: 10,
   },
   {
@@ -23,7 +24,7 @@ export const defaultPaymentMethods: PaymentMethodConfig[] = [
     accountNumber: "",
     accountHolder: holder,
     instructions: "Isi nomor rekening dari menu Payment sebelum live.",
-    enabled: true,
+    enabled: false,
     sortOrder: 20,
   },
   {
@@ -34,7 +35,7 @@ export const defaultPaymentMethods: PaymentMethodConfig[] = [
     accountNumber: "",
     accountHolder: holder,
     instructions: "Isi nomor rekening dari menu Payment sebelum live.",
-    enabled: true,
+    enabled: false,
     sortOrder: 30,
   },
   {

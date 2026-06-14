@@ -48,6 +48,14 @@ export const paymentMethodConfigSchema = z.object({
   instructions: z.string().trim().max(400).optional().or(z.literal("")),
   enabled: z.boolean(),
   sortOrder: z.number().int().min(0).max(10_000),
+}).superRefine((method, context) => {
+  if (!method.enabled) return;
+  if (method.type === "bank_transfer" && !method.accountNumber?.trim()) {
+    context.addIssue({ code: "custom", path: ["accountNumber"], message: "Nomor rekening wajib diisi sebelum metode transfer diaktifkan." });
+  }
+  if (method.type === "qris" && !method.qrisPayload?.trim()) {
+    context.addIssue({ code: "custom", path: ["qrisPayload"], message: "Payload QRIS wajib diisi sebelum QRIS diaktifkan." });
+  }
 });
 
 const productVariantSchema = z.object({
