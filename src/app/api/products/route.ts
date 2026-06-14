@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { products as demoProducts } from "@/lib/seed";
-import { requestHostedDemo, usesHostedDemo } from "@/lib/demo-overlay-server";
+import { requestHostedAdmin, requestHostedDemo, usesHostedDemo } from "@/lib/demo-overlay-server";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { mapProduct, verifyAdmin } from "@/lib/server-helpers";
 import { productSchema } from "@/lib/schemas";
@@ -33,7 +33,14 @@ export async function POST(request: NextRequest) {
   const parsed = productSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message || "Data produk tidak valid." }, { status: 400 });
   const supabase = createServerSupabase();
-  if (!supabase) return NextResponse.json({ error: "Supabase belum dikonfigurasi." }, { status: 503 });
+  if (!supabase) {
+    try {
+      const { product } = await requestHostedAdmin<{ product: Record<string, unknown> }>("admin_product_save", { input: parsed.data });
+      return NextResponse.json(mapProduct(product), { status: 201 });
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Produk gagal ditambahkan." }, { status: 503 });
+    }
+  }
   const { data: id, error } = await supabase.rpc("save_product", { p_product_id: null, p_data: parsed.data });
   if (error) return NextResponse.json({ error: error.message }, { status: 409 });
   const { data, error: readError } = await supabase.from("products").select("*, product_variants(*)").eq("id", id).single();

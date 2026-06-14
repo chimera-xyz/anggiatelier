@@ -127,6 +127,51 @@ Deno.serve(async (request) => {
       return response({ logs: data || [] });
     }
 
+    if (action === "admin_product_save") {
+      const id = body.id ? String(body.id) : null;
+      const input = (body.input || {}) as Record<string, unknown>;
+      if (!String(input.code || "").trim() || !String(input.name || "").trim() || !Array.isArray(input.variants) || !input.variants.length) {
+        return response({ error: "Data produk dan varian belum lengkap." }, 400);
+      }
+      const { data: productId, error: saveError } = await supabase.rpc("save_product", {
+        p_product_id: id,
+        p_data: input,
+      });
+      if (saveError) return response({ error: saveError.message }, 409);
+      const { data, error } = await supabase.from("products").select("*, product_variants(*)").eq("id", productId).single();
+      if (error) throw error;
+      await supabase.from("audit_logs").insert({
+        action: id ? "product.updated" : "product.created",
+        entity_type: "product",
+        entity_id: productId,
+        details: { code: input.code },
+      });
+      return response({ product: data });
+    }
+
+    if (action === "admin_product_archive") {
+      const id = String(body.id || "");
+      const { data: variants, error: variantError } = await supabase.from("product_variants").select("reserved_quantity").eq("product_id", id);
+      if (variantError) throw variantError;
+      if ((variants || []).some((variant) => Number(variant.reserved_quantity) > 0)) {
+        return response({ error: "Produk masih memiliki reservasi aktif." }, 409);
+      }
+      const { error } = await supabase.from("products").update({ active: false, is_live: false, updated_at: new Date().toISOString() }).eq("id", id);
+      if (error) throw error;
+      await supabase.from("audit_logs").insert({ action: "product.archived", entity_type: "product", entity_id: id });
+      return response({ ok: true });
+    }
+
+    if (action === "admin_product_upload_url") {
+      const extension = String(body.extension || "webp").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5) || "webp";
+      const path = `${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}.${extension}`;
+      const bucket = supabase.storage.from("product-images");
+      const { data, error } = await bucket.createSignedUploadUrl(path);
+      if (error || !data) throw error || new Error("URL upload foto gagal dibuat.");
+      const { data: publicData } = bucket.getPublicUrl(path);
+      return response({ upload: { signedUrl: data.signedUrl, publicUrl: publicData.publicUrl } });
+    }
+
     if (action === "admin_live_start") {
       const name = String(body.name || "Live Anggi Atelier").trim().slice(0, 120);
       await supabase.from("live_sessions").update({ status: "ended", ended_at: new Date().toISOString() }).eq("status", "active");
