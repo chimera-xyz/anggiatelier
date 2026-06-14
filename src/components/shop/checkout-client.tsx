@@ -1,0 +1,286 @@
+"use client";
+
+import Image from "next/image";
+import Link from "next/link";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  ArrowLeft,
+  Banknote,
+  Check,
+  CheckCircle2,
+  Clock3,
+  Copy,
+  FileCheck2,
+  LoaderCircle,
+  MapPin,
+  MessageCircle,
+  PackageCheck,
+  QrCode,
+  ShieldCheck,
+  Truck,
+  UploadCloud,
+} from "lucide-react";
+import { Brand } from "@/components/brand";
+import { Toast } from "@/components/toast";
+import { bankAccount, adminWhatsApp } from "@/lib/config";
+import { createOrder, getOrder, getShippingRates, listProducts, uploadPaymentProof } from "@/lib/api-client";
+import { formatRupiah, whatsappInvoiceTemplate } from "@/lib/format";
+import type { Order, PaymentMethod, Product, ShippingOption } from "@/lib/types";
+
+type Props = { initialCode: string; initialColor?: string; initialSize?: string };
+
+const initialForm = {
+  buyerName: "",
+  whatsapp: "",
+  line: "",
+  province: "",
+  city: "",
+  district: "",
+  postalCode: "",
+};
+
+export function CheckoutClient({ initialCode, initialColor, initialSize }: Props) {
+  const [product, setProduct] = useState<Product | null>(null);
+  const [form, setForm] = useState(initialForm);
+  const [shipping, setShipping] = useState<ShippingOption[]>([]);
+  const [shippingSource, setShippingSource] = useState("estimate");
+  const [selectedShipping, setSelectedShipping] = useState<ShippingOption | null>(null);
+  const [shippingLoading, setShippingLoading] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("bank_transfer");
+  const [agreed, setAgreed] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [order, setOrder] = useState<Order | null>(null);
+  const [proofUploading, setProofUploading] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  useEffect(() => {
+    listProducts().then((items) => setProduct(items.find((item) => item.code === initialCode) || items[0] || null));
+  }, [initialCode]);
+
+  useEffect(() => {
+    if (!/^\d{5}$/.test(form.postalCode) || !product) return;
+    const timer = window.setTimeout(async () => {
+      try {
+        setShippingLoading(true);
+        const data = await getShippingRates(product.id, form.postalCode);
+        setShipping(data.rates);
+        setSelectedShipping(data.rates[0] || null);
+        setShippingSource(data.source);
+      } catch {
+        setShipping([]);
+        setSelectedShipping(null);
+      } finally {
+        setShippingLoading(false);
+      }
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [form.postalCode, product]);
+
+  const activeVariants = product?.variants.filter((variant) => variant.active && variant.stock - variant.reserved > 0) || [];
+  const variant = activeVariants.find((item) => item.color === initialColor && item.size === initialSize) || activeVariants[0];
+  const color = variant?.color || "";
+  const size = variant?.size || "";
+  const total = (product?.price || 0) + (selectedShipping?.price || 0);
+
+  useEffect(() => {
+    if (!order?.accessToken || !["awaiting_payment", "pending_confirmation"].includes(order.status)) return;
+    const timer = window.setInterval(async () => {
+      try {
+        const next = await getOrder(order.id, order.accessToken);
+        if (next) setOrder((current) => current ? { ...current, ...next, accessToken: current.accessToken } : next);
+      } catch {
+        // Keep the success screen usable when polling briefly fails.
+      }
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [order?.accessToken, order?.id, order?.status]);
+
+  function updateField(name: keyof typeof form, value: string) {
+    setForm((current) => ({ ...current, [name]: value }));
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!product || !variant || !selectedShipping || !agreed) return;
+    setSubmitting(true);
+    try {
+      const created = await createOrder({
+        source: "website",
+        productId: product.id,
+        variantId: variant.id,
+        productCode: product.code,
+        productName: product.name,
+        productImage: product.image,
+        unitPrice: product.price,
+        quantity: 1,
+        color,
+        size,
+        buyerName: form.buyerName,
+        whatsapp: form.whatsapp,
+        address: {
+          line: form.line,
+          province: form.province,
+          city: form.city,
+          district: form.district,
+          postalCode: form.postalCode,
+        },
+        shipping: selectedShipping,
+        paymentMethod,
+      });
+      setOrder(created);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (error) {
+      setToast({ message: error instanceof Error ? error.message : "Pesanan gagal dibuat.", type: "error" });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function uploadProof(file?: File) {
+    if (!file || !order) return;
+    setProofUploading(true);
+    try {
+      const updated = await uploadPaymentProof(order, file);
+      setOrder(updated);
+      setToast({ message: "Bukti pembayaran diterima. Admin akan segera memeriksanya.", type: "success" });
+    } catch (error) {
+      setToast({ message: error instanceof Error ? error.message : "Bukti gagal diunggah.", type: "error" });
+    } finally {
+      setProofUploading(false);
+    }
+  }
+
+  const invoiceLink = useMemo(() => {
+    if (!order) return "#";
+    return `https://wa.me/${adminWhatsApp}?text=${encodeURIComponent(`${whatsappInvoiceTemplate(order)}\n\nSaya ingin mengirim bukti pembayaran untuk pesanan ini.`)}`;
+  }, [order]);
+
+  if (!product) {
+    return <main className="grid min-h-screen place-items-center bg-[#fffaf6]"><LoaderCircle className="size-7 animate-spin text-[#8a2949]" /></main>;
+  }
+
+  if (order) {
+    const waiting = order.status === "pending_confirmation";
+    return <OrderSuccess order={order} waiting={waiting} proofUploading={proofUploading} uploadProof={uploadProof} invoiceLink={invoiceLink} />;
+  }
+
+  return (
+    <main className="min-h-screen bg-[#fffaf6] paper-noise">
+      <header className="border-b border-[#eadedd] bg-white/90 px-4 py-4 backdrop-blur sm:px-8">
+        <div className="mx-auto flex max-w-6xl items-center justify-between">
+          <Brand compact />
+          <Link href="/shop" className="ghost-button"><ArrowLeft className="size-4" /> Kembali ke LIVE</Link>
+        </div>
+      </header>
+
+      <form onSubmit={submit} className="mx-auto grid max-w-6xl gap-7 px-4 py-8 sm:px-8 lg:grid-cols-[.76fr_1.24fr] lg:py-12">
+        <aside className="lg:sticky lg:top-8 lg:self-start">
+          <div className="surface overflow-hidden">
+            <div className="relative aspect-[4/4.5] bg-[#f0e5de]"><Image src={product.image} alt={product.name} fill loading="eager" sizes="(max-width: 1024px) 100vw, 38vw" className="object-cover" /></div>
+            <div className="p-6">
+              <span className="text-xs font-extrabold tracking-[0.14em] text-[#a33c5b]">KODE {product.code}</span>
+              <h1 className="mt-2 font-display text-3xl font-semibold">{product.name}</h1>
+              <p className="mt-2 text-sm text-[#756a6e]">{color} / {size} · SKU {variant?.sku}</p>
+              <p className="mt-5 font-display text-3xl font-semibold text-[#9c2347]">{formatRupiah(product.price)}</p>
+              <div className="mt-5 flex items-center gap-2 rounded-xl bg-[#eef8f2] px-3 py-2 text-xs font-bold text-[#218457]"><Check className="size-4" /> Stok direservasi setelah pesanan dibuat</div>
+            </div>
+          </div>
+        </aside>
+
+        <div className="space-y-6">
+          <section className="surface p-5 sm:p-7">
+            <div className="flex items-center gap-3"><MapPin className="size-5 text-[#a33c5b]" /><h2 className="font-display text-3xl font-semibold">Data pengiriman</h2></div>
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              <Field label="Nama lengkap"><input required className="input-shell" value={form.buyerName} onChange={(e) => updateField("buyerName", e.target.value)} placeholder="Nama penerima" /></Field>
+              <Field label="Nomor WhatsApp"><input required className="input-shell" value={form.whatsapp} onChange={(e) => updateField("whatsapp", e.target.value)} placeholder="08xxxxxxxxxx" inputMode="tel" /></Field>
+              <div className="sm:col-span-2"><Field label="Alamat lengkap"><textarea required className="input-shell" value={form.line} onChange={(e) => updateField("line", e.target.value)} placeholder="Nama jalan, nomor rumah, RT/RW, patokan" /></Field></div>
+              <Field label="Provinsi"><input required className="input-shell" value={form.province} onChange={(e) => updateField("province", e.target.value)} placeholder="Jawa Barat" /></Field>
+              <Field label="Kota / Kabupaten"><input required className="input-shell" value={form.city} onChange={(e) => updateField("city", e.target.value)} placeholder="Bandung" /></Field>
+              <Field label="Kecamatan"><input required className="input-shell" value={form.district} onChange={(e) => updateField("district", e.target.value)} placeholder="Cicendo" /></Field>
+              <Field label="Kode pos"><input required className="input-shell" value={form.postalCode} onChange={(e) => updateField("postalCode", e.target.value.replace(/\D/g, "").slice(0, 5))} placeholder="40172" inputMode="numeric" pattern="\d{5}" /></Field>
+            </div>
+          </section>
+
+          <section className="surface p-5 sm:p-7">
+            <div className="flex items-center gap-3"><Truck className="size-5 text-[#a33c5b]" /><div><h2 className="font-display text-3xl font-semibold">Pilih kurir</h2><p className="mt-1 text-xs text-[#756a6e]">{shippingSource === "biteship" ? "Tarif langsung dari agregator kurir" : "Tarif layanan yang diatur admin"}</p></div></div>
+            <div className="mt-5 grid gap-3">
+              {shippingLoading ? <div className="flex items-center gap-2 rounded-2xl border border-[#eadedd] p-4 text-sm text-[#756a6e]"><LoaderCircle className="size-4 animate-spin" /> Menghitung ongkir...</div> : null}
+              {!shippingLoading && /^\d{5}$/.test(form.postalCode) && !shipping.length ? <p className="rounded-2xl border border-[#efc7cc] bg-[#fff6f7] p-4 text-sm text-[#9a3451]">Ongkir belum tersedia untuk kode pos ini. Hubungi admin lewat WhatsApp.</p> : null}
+              {shipping.map((option) => (
+                <label key={option.id} className={`flex cursor-pointer items-center gap-4 rounded-2xl border p-4 transition ${selectedShipping?.id === option.id ? "border-[#d65376] bg-[#fff5f7]" : "border-[#eadedd] bg-white hover:border-[#d7b7bf]"}`}>
+                  <input type="radio" name="shipping" checked={selectedShipping?.id === option.id} onChange={() => setSelectedShipping(option)} className="size-4 accent-[#9c2347]" />
+                  <div className="flex-1"><strong className="text-sm">{option.courier} {option.service}</strong><p className="mt-1 text-xs text-[#756a6e]">Estimasi {option.eta}</p></div>
+                  <strong className="text-sm text-[#a33c5b]">{formatRupiah(option.price)}</strong>
+                </label>
+              ))}
+            </div>
+          </section>
+
+          <section className="surface p-5 sm:p-7">
+            <div className="flex items-center gap-3"><Banknote className="size-5 text-[#a33c5b]" /><div><h2 className="font-display text-3xl font-semibold">Pembayaran manual</h2><p className="mt-1 text-xs text-[#756a6e]">Admin mengonfirmasi setelah bukti diperiksa.</p></div></div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <PaymentChoice active={paymentMethod === "bank_transfer"} onClick={() => setPaymentMethod("bank_transfer")} icon={<Banknote className="size-5" />} title="Transfer Bank" text="Transfer ke rekening admin" />
+              <PaymentChoice active={paymentMethod === "qris"} onClick={() => setPaymentMethod("qris")} icon={<QrCode className="size-5" />} title="QRIS" text="Scan QRIS statis admin" />
+            </div>
+          </section>
+
+          <section className="surface p-5 sm:p-7">
+            <h2 className="font-display text-3xl font-semibold">Rincian pembayaran</h2>
+            <div className="mt-5 space-y-3 text-sm">
+              <div className="flex justify-between text-[#756a6e]"><span>Subtotal (1 produk)</span><span>{formatRupiah(product.price)}</span></div>
+              <div className="flex justify-between text-[#756a6e]"><span>Ongkos kirim</span><span>{selectedShipping ? formatRupiah(selectedShipping.price) : "Belum dipilih"}</span></div>
+              <div className="flex items-end justify-between border-t border-[#eadedd] pt-4"><span className="font-bold">Total pembayaran</span><span className="font-display text-3xl font-semibold text-[#a02249]">{formatRupiah(total)}</span></div>
+            </div>
+            <label className="mt-6 flex cursor-pointer items-start gap-3 text-xs leading-5 text-[#756a6e]"><input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5 size-4 accent-[#9c2347]" /> Saya menyetujui data pesanan dan memahami bahwa stok baru terjual setelah pembayaran dikonfirmasi admin.</label>
+            <button type="submit" disabled={!agreed || !selectedShipping || !variant || submitting} className="primary-button mt-6 min-h-[56px] w-full text-base">
+              {submitting ? <LoaderCircle className="size-5 animate-spin" /> : <ShieldCheck className="size-5" />} Buat Pesanan
+            </button>
+            <p className="mt-3 flex items-center justify-center gap-2 text-center text-[11px] text-[#8a7c81]"><Clock3 className="size-3.5" /> Reservasi berlaku 30 menit setelah pesanan dibuat.</p>
+          </section>
+        </div>
+      </form>
+      {toast ? <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} /> : null}
+    </main>
+  );
+}
+
+function OrderSuccess({ order, waiting, proofUploading, uploadProof, invoiceLink }: { order: Order; waiting: boolean; proofUploading: boolean; uploadProof: (file?: File) => void; invoiceLink: string }) {
+  return (
+    <main className="min-h-screen bg-[#fffaf6] paper-noise px-4 py-6 sm:px-6 sm:py-10">
+      <div className="mx-auto max-w-3xl">
+        <div className="mb-8 flex items-center justify-between"><Brand compact /><Link href="/shop" className="ghost-button"><ArrowLeft className="size-4" /> Kembali</Link></div>
+        <div className="surface overflow-hidden">
+          <div className="bg-[#4a1326] px-6 py-7 text-white sm:px-9">
+            <div className="flex size-12 items-center justify-center rounded-full bg-white/12"><PackageCheck className="size-6 text-[#f2b6c5]" /></div>
+            <h1 className="mt-5 font-display text-4xl font-semibold">Pesanan berhasil dibuat</h1>
+            <p className="mt-2 text-sm text-white/70">Nomor pesanan <strong className="text-white">{order.orderNumber}</strong>. Stok dikunci selama 30 menit.</p>
+          </div>
+          <div className="grid gap-7 p-6 sm:p-9 lg:grid-cols-[1fr_.88fr]">
+            <div>
+              <div className="flex gap-4 rounded-2xl border border-[#eadedd] bg-[#fff9f7] p-4">
+                <div className="relative h-28 w-24 shrink-0 overflow-hidden rounded-xl bg-[#f0e4dc]"><Image src={order.productImage} alt="" fill sizes="96px" className="object-cover" /></div>
+                <div className="min-w-0"><span className="text-xs font-extrabold text-[#a33c5b]">KODE {order.productCode}</span><h2 className="mt-1 font-display text-2xl font-semibold leading-tight">{order.productName}</h2><p className="mt-2 text-xs text-[#756a6e]">{order.color} / {order.size}</p><p className="mt-2 font-bold text-[#8a2949]">{formatRupiah(order.subtotal)}</p></div>
+              </div>
+              <div className="mt-6 rounded-2xl border border-[#eadedd] p-5"><h3 className="font-display text-2xl font-semibold">Rincian pembayaran</h3><div className="mt-4 space-y-3 text-sm"><div className="flex justify-between text-[#756a6e]"><span>Subtotal</span><span>{formatRupiah(order.subtotal)}</span></div><div className="flex justify-between text-[#756a6e]"><span>{order.shipping.courier} {order.shipping.service}</span><span>{formatRupiah(order.shipping.price)}</span></div><div className="flex justify-between border-t border-[#eadedd] pt-3 text-base font-extrabold"><span>Total</span><span className="text-[#9c2347]">{formatRupiah(order.total)}</span></div></div></div>
+            </div>
+            <div>
+              <div className="rounded-2xl border border-[#e6c2ca] bg-[#fff3f6] p-5"><div className="flex items-center gap-3"><Banknote className="size-5 text-[#9c2347]" /><h3 className="font-bold">Transfer manual</h3></div><p className="mt-4 text-xs uppercase tracking-[0.12em] text-[#8b6f78]">{bankAccount.bank}</p><div className="mt-1 flex items-center justify-between gap-3"><strong className="text-xl tracking-[0.06em]">{bankAccount.number}</strong><button onClick={() => navigator.clipboard.writeText(bankAccount.number)} className="rounded-lg border border-[#e2b8c3] bg-white p-2 text-[#8a2949]" aria-label="Salin rekening"><Copy className="size-4" /></button></div><p className="mt-1 text-xs text-[#756a6e]">a.n. {bankAccount.holder}</p></div>
+              <div className="mt-5 rounded-2xl border border-dashed border-[#dba5b3] p-5 text-center">
+                {waiting ? <><CheckCircle2 className="mx-auto size-9 text-[#218457]" /><h3 className="mt-3 font-bold">Bukti sudah diterima</h3><p className="mt-1 text-xs leading-5 text-[#756a6e]">Menunggu konfirmasi admin. Notifikasi LIVE muncul setelah admin menyetujui pembayaran.</p></> : <><UploadCloud className="mx-auto size-9 text-[#bf4a6a]" /><h3 className="mt-3 font-bold">Unggah bukti pembayaran</h3><p className="mt-1 text-xs leading-5 text-[#756a6e]">JPG, PNG, WebP, atau PDF maksimal 5 MB.</p><label className="primary-button mt-4 w-full">{proofUploading ? <LoaderCircle className="size-4 animate-spin" /> : <FileCheck2 className="size-4" />} Pilih Bukti<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="sr-only" disabled={proofUploading} onChange={(event) => uploadProof(event.target.files?.[0])} /></label></>}
+              </div>
+              <a href={invoiceLink} target="_blank" rel="noreferrer" className="secondary-button mt-4 w-full"><MessageCircle className="size-4" /> Hubungi Admin</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return <label className="grid gap-2 text-xs font-bold text-[#5f5055]"><span>{label}</span>{children}</label>;
+}
+
+function PaymentChoice({ active, onClick, icon, title, text }: { active: boolean; onClick: () => void; icon: React.ReactNode; title: string; text: string }) {
+  return <button type="button" onClick={onClick} className={`flex min-h-[86px] items-center gap-4 rounded-2xl border p-4 text-left ${active ? "border-[#d65376] bg-[#fff4f6] text-[#7a1837]" : "border-[#eadedd] bg-white"}`}><span className={`grid size-10 place-items-center rounded-xl ${active ? "bg-[#4a1326] text-white" : "bg-[#f7edef] text-[#8a2949]"}`}>{icon}</span><span><strong className="block text-sm">{title}</strong><span className="mt-1 block text-xs text-[#756a6e]">{text}</span></span></button>;
+}

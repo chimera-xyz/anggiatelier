@@ -1,0 +1,240 @@
+@import "tailwindcss";
+
+:root {
+  --wine-950: #250812;
+  --wine-900: #360b1a;
+  --wine-800: #4a1326;
+  --wine-700: #661c35;
+  --wine-600: #8a2949;
+  --rose-500: #df5276;
+  --rose-300: #e9a4b7;
+  --rose-100: #f9e9ed;
+  --ivory: #fffaf6;
+  --paper: #fffdfb;
+  --ink: #241b1e;
+  --muted: #756a6e;
+  --line: #eadedd;
+  --green: #218457;
+  --amber: #b97a20;
+  --shadow: 0 22px 70px rgba(74, 19, 38, 0.12);
+  --shadow-soft: 0 12px 36px rgba(51, 19, 30, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--ivory);
+  color: var(--ink);
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background: var(--ivory);
+  color: var(--ink);
+  font-family: var(--font-sans), sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:not(:disabled),
+a {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+::selection {
+  color: white;
+  background: var(--wine-700);
+}
+
+.font-display {
+  font-family: var(--font-serif), Georgia, serif;
+}
+
+.focus-ring:focus-visible {
+  outline: 3px solid rgba(223, 82, 118, 0.38);
+  outline-offset: 2px;
+}
+
+.paper-noise {
+  background-image:
+    radial-gradient(circle at 20% 10%, rgba(233, 164, 183, 0.12), transparent 30%),
+    radial-gradient(circle at 85% 75%, rgba(74, 19, 38, 0.06), transparent 28%);
+}
+
+.glass {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(47, 10, 23, 0.82);
+  backdrop-filter: blur(18px);
+}
+
+.input-shell {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: white;
+  padding: 0 14px;
+  color: var(--ink);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+textarea.input-shell {
+  min-height: 104px;
+  padding-block: 12px;
+  resize: vertical;
+}
+
+.input-shell:focus {
+  outline: none;
+  border-color: var(--rose-500);
+  box-shadow: 0 0 0 4px rgba(223, 82, 118, 0.11);
+}
+
+.primary-button,
+.secondary-button,
+.ghost-button,
+.danger-button {
+  display: inline-flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border-radius: 14px;
+  padding: 0 18px;
+  font-size: 14px;
+  font-weight: 750;
+  transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.primary-button {
+  border: 1px solid var(--wine-800);
+  background: linear-gradient(135deg, var(--wine-800), var(--wine-600));
+  color: white;
+  box-shadow: 0 10px 24px rgba(74, 19, 38, 0.2);
+}
+
+.primary-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px rgba(74, 19, 38, 0.28);
+}
+
+.secondary-button {
+  border: 1px solid #e5bdc7;
+  background: #fff7f8;
+  color: var(--wine-800);
+}
+
+.ghost-button {
+  border: 1px solid var(--line);
+  background: white;
+  color: #5b484e;
+}
+
+.danger-button {
+  border: 1px solid #efc5c5;
+  background: #fff7f7;
+  color: #a52f3a;
+}
+
+.surface {
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: var(--shadow-soft);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.status-paid {
+  background: #e1f5e9;
+  color: #197245;
+}
+
+.status-waiting {
+  background: #fde9ee;
+  color: #9a3451;
+}
+
+.status-reserved {
+  background: #fff1d9;
+  color: #976016;
+}
+
+.status-cancelled {
+  background: #eee9ea;
+  color: #6e6165;
+}
+
+.fade-up {
+  animation: fade-up 420ms ease both;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes overlay-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(22px) scale(0.96);
+  }
+  65% {
+    transform: translateY(-3px) scale(1.01);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.overlay-enter {
+  animation: overlay-enter 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

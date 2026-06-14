@@ -1,0 +1,17 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { LoaderCircle, Printer } from "lucide-react";
+import { Brand } from "@/components/brand";
+import { getOrder } from "@/lib/api-client";
+import { formatRupiah } from "@/lib/format";
+import type { Order } from "@/lib/types";
+
+export function PackingSlip({ orderId }: { orderId: string }) {
+  const [order, setOrder] = useState<Order | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => { getOrder(orderId).then(setOrder).catch((reason) => setError(reason instanceof Error ? reason.message : "Pesanan gagal dimuat.")); }, [orderId]);
+  if (error) return <main className="grid min-h-screen place-items-center p-6">{error}</main>;
+  if (!order) return <main className="grid min-h-screen place-items-center"><LoaderCircle className="size-7 animate-spin" /></main>;
+  return <main className="mx-auto max-w-3xl bg-white p-8 text-black print:max-w-none print:p-0"><div className="mb-7 flex items-center justify-between print:hidden"><Brand compact /><button onClick={() => window.print()} className="primary-button"><Printer className="size-4" /> Cetak packing slip</button></div><section className="border-2 border-black p-6"><div className="flex items-start justify-between border-b-2 border-black pb-5"><div><h1 className="font-display text-3xl font-semibold">Anggi Atelier</h1><p className="mt-1 text-xs">Fashion live commerce</p></div><div className="text-right"><p className="text-xs font-bold">PACKING SLIP</p><strong className="text-xl">{order.orderNumber}</strong></div></div><div className="grid grid-cols-2 gap-8 border-b border-black py-5 text-sm"><div><p className="text-xs font-bold">KIRIM KEPADA</p><h2 className="mt-2 text-lg font-bold">{order.buyerName}</h2><p>{order.whatsapp}</p><p className="mt-2 leading-6">{order.address.line}<br />{order.address.district}, {order.address.city}<br />{order.address.province} {order.address.postalCode}</p></div><div><p className="text-xs font-bold">PENGIRIMAN</p><p className="mt-2 text-lg font-bold">{order.shipping.courier} {order.shipping.service}</p><p>{order.shipping.eta}</p>{order.waybill ? <><p className="mt-4 text-xs font-bold">NOMOR RESI</p><p className="font-mono text-lg font-bold">{order.waybill}</p></> : null}</div></div><table className="mt-5 w-full text-left text-sm"><thead><tr className="border-b border-black"><th className="py-2">Produk</th><th>SKU</th><th>Varian</th><th className="text-center">Qty</th></tr></thead><tbody><tr><td className="py-4"><strong>Kode {order.productCode}</strong><span className="block">{order.productName}</span></td><td>{order.variantSku}</td><td>{order.color} / {order.size}</td><td className="text-center font-bold">{order.quantity}</td></tr></tbody></table><div className="mt-8 grid grid-cols-2 gap-8 border-t border-black pt-5"><div><p className="text-xs font-bold">CATATAN ADMIN</p><p className="mt-2 min-h-16 text-sm">{order.adminNote || "-"}</p></div><div className="text-sm"><div className="flex justify-between"><span>Subtotal</span><span>{formatRupiah(order.subtotal)}</span></div><div className="mt-2 flex justify-between"><span>Ongkir</span><span>{formatRupiah(order.shipping.price)}</span></div><div className="mt-3 flex justify-between border-t border-black pt-3 text-lg font-bold"><span>Total</span><span>{formatRupiah(order.total)}</span></div></div></div><p className="mt-8 border-t border-dashed border-black pt-4 text-center text-xs">Cek produk, warna, ukuran, dan alamat sebelum paket disegel.</p></section></main>;
+}
