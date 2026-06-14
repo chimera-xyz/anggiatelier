@@ -7,7 +7,8 @@ import { isAdminRequest } from "./admin-auth";
 import type { OverlayEvent } from "./types";
 
 function configuredKey() {
-  return process.env.OVERLAY_STREAM_KEY || (process.env.NODE_ENV !== "production" ? "anggi-live-demo" : "");
+  const demoMode = !process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  return process.env.OVERLAY_STREAM_KEY || (process.env.NODE_ENV !== "production" || demoMode ? "anggi-live-demo" : "");
 }
 
 function safeEqual(a: string, b: string) {

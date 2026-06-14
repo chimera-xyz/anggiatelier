@@ -6,10 +6,14 @@ import type { NextRequest, NextResponse } from "next/server";
 export const ADMIN_COOKIE = "anggi_admin_session";
 const SESSION_SECONDS = 12 * 60 * 60;
 
+function isDemoMode() {
+  return !process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+}
+
 function secret() {
   const value = process.env.ADMIN_SESSION_SECRET;
   if (value) return value;
-  if (process.env.NODE_ENV !== "production") return "anggi-atelier-local-development-session";
+  if (process.env.NODE_ENV !== "production" || isDemoMode()) return "anggi-atelier-demo-session";
   throw new Error("ADMIN_SESSION_SECRET belum dikonfigurasi.");
 }
 
@@ -24,7 +28,7 @@ function safeEqual(a: string, b: string) {
 }
 
 export function expectedAdminPin() {
-  return process.env.ADMIN_PIN || (process.env.NODE_ENV !== "production" ? "1234" : "");
+  return process.env.ADMIN_PIN || (process.env.NODE_ENV !== "production" || isDemoMode() ? "1234" : "");
 }
 
 export function verifyPin(pin: string) {
